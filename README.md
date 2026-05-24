@@ -71,7 +71,7 @@ quant-backtester/
 │   │   └── ma_long_alignment.py #  MA多头趋势 (四线排列+上移)
 │   └── dashboard/
 │       └── templates/index.html # 看板页面
-├── tests/                      # 单元测试 (186 个)
+├── tests/                      # 单元测试 (233 个)
 ├── scripts/                    # 工具脚本
 │   └── toggle-public.sh        #   公网开关
 ├── deploy/                     # 部署文件
@@ -409,7 +409,7 @@ data/cache/
 
 ```bash
 pytest tests/ -v
-# 186 passed
+# 233 passed
 ```
 
 ---
@@ -451,3 +451,41 @@ pytest tests/ -v
 | 数据分析 | pandas + numpy + scipy |
 | 可视化 | Plotly.js (CDN) |
 | Python | >= 3.11 |
+
+---
+
+## 日晷 Sundial — A股交易看板
+
+日晷是独立的 Web 看板（端口 8200），展示市场公开数据，与私有回测系统严格分离。
+
+### 页面
+
+| 页面 | 路由 | 功能 |
+|------|------|------|
+| 每日复盘 | `/review` | 情绪仪表盘（温度计+涨停/跌停/炸板率）+ 连板天梯 + 昨日涨停表现 |
+| 热榜 | `/hotrank` | 同花顺一小时热股榜，三时段查询 |
+| 个股 | `/stock` | Baostock 30日日K线 |
+| 回测 | `/backtest` | iframe 嵌入 quant-backtester |
+| 账户 | `/account` | 模拟账户快照 |
+
+### 数据源
+
+| 数据 | 来源 | 说明 |
+|------|------|------|
+| 涨停/跌停/炸板/强势 | 东方财富 push2ex | 支持 date 历史查询 |
+| 指数（上证/深证/创业板） | Baostock | 含成交额 |
+| 科创50 | AkShare | 补 Baostock 缺口 |
+| 同花顺热榜 | eq.10jqka.com.cn | 一小时热股榜，cron 定时采集 |
+
+### 存储
+
+SQLite (`src/data/sundial.db`)，存算分离：
+- `hot_rank_snapshot` — 热榜快照（API 无历史 date，必须存储）
+- `account_snapshot` — 模拟账户快照
+- 涨停/情绪数据实时计算，不存储
+
+### 测试
+
+```bash
+pytest tests/sundial/ -v   # 47 passed — DB / 情绪 / 天梯 / API / 配置
+```

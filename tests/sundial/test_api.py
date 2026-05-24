@@ -1,0 +1,140 @@
+"""
+单元测试 — FastAPI 端点: 页面路由、API 路由（mock 外部服务）。
+"""
+import pytest
+from unittest.mock import AsyncMock, patch, MagicMock
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture(autouse=True)
+def mock_init_db():
+    """所有 API 测试跳过 init_db"""
+    with patch("sundial.main.init_db", MagicMock()):
+        yield
+
+
+@pytest.fixture
+def client():
+    from sundial.main import app
+    return TestClient(app)
+
+
+class TestHealth:
+    """健康检查"""
+
+    def test_health_ok(self, client):
+        r = client.get("/health")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "ok"
+        assert data["name"] == "sundial"
+
+
+class TestPageRoutes:
+    """页面路由返回 HTML"""
+
+    def test_index(self, client):
+        r = client.get("/")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+
+    def test_review(self, client):
+        r = client.get("/review")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+
+    def test_hotrank(self, client):
+        r = client.get("/hotrank")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+
+    def test_stock(self, client):
+        r = client.get("/stock")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+
+    def test_backtest(self, client):
+        r = client.get("/backtest")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+
+    def test_account(self, client):
+        r = client.get("/account")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+
+
+class TestAPIRoutes:
+    """API 路由"""
+
+    def test_api_review_mocked(self, client):
+        """mock sentiment 和 ladder 服务 — 注意它们在 api_review 内 import，需 patch 源模块"""
+        mock_sentiment = {
+            "sentiment_temp": 50, "sentiment_stage": "正常",
+            "limit": {"up_count": 30, "down_count": 5, "broken_count": 3, "broken_rate": 10.0},
+            "promotion_rate": 40.0,
+            "indices": {}, "amount": {"total": 8000, "sh": 3000, "sz": 5000},
+        }
+        mock_ladder = {"total_limit_up": 30, "ladder": {}}
+        mock_yday = {"count": 20, "continued": 10, "rate": 50.0}
+
+        with patch("sundial.services.sentiment.compute_sentiment", AsyncMock(return_value=mock_sentiment)),              patch("sundial.services.ladder.compute_ladder", AsyncMock(return_value=mock_ladder)),              patch("sundial.services.ladder.compute_yesterday_performance", AsyncMock(return_value=mock_yday)):
+            r = client.get("/api/review", params={"date": "20260522"})
+            assert r.status_code == 200
+            data = r.json()
+            assert data["sentiment"]["sentiment_stage"] == "正常"
+            assert data["ladder"]["total_limit_up"] == 30
+            assert data["yesterday_performance"]["rate"] == 50.0
+
+    def test_api_hotrank_empty(self, client):
+        """热榜无数据"""
+        with patch("sundial.main.get_hot_rank", MagicMock(return_value=[])):
+            r = client.get("/api/hotrank", params={"date": "2026-05-24", "slot": "1500"})
+            assert r.status_code == 200
+            data = r.json()
+            assert data["items"] == []
+
+    def test_api_hotrank_with_data(self, client):
+        """热榜有数据"""
+        items = [
+            {"rank": 1, "code": "000001", "name": "平安银行", "heat_value": 99.0,
+             "concept_tag": "银行", "is_limit_up": 0, "change_pct": 3.0},
+        ]
+        with patch("sundial.main.get_hot_rank", MagicMock(return_value=items)):
+            r = client.get("/api/hotrank", params={"slot": "1130"})
+            assert r.status_code == 200
+            data = r.json()
+            assert len(data["items"]) == 1
+            assert data["items"][0]["name"] == "平安银行"
+
+    def test_api_account_save_and_get(self, client):
+        """账户保存与查询"""
+        from sundial.db import init_db
+        init_db()
+
+        r = client.post("/api/account/save", params={
+            "date": "2026-05-24",
+            "total_asset": 100000,
+            "available_cash": 50000,
+            "position_value": 50000,
+            "daily_pnl": 2000,
+            "holdings": '[{"code":"000001","name":"平安银行","shares":1000}]',
+        })
+        assert r.status_code == 200
+        assert r.json()["status"] == "ok"
+
+        r = client.get("/api/account", params={"date": "2026-05-24"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total_asset"] == 100000
+        assert data["available_cash"] == 50000
+        assert data["daily_pnl"] == 2000
+        assert len(data["holdings"]) == 1
+        assert data["holdings"][0]["code"] == "000001"
+
+    def test_api_account_not_found(self, client):
+        """查询不存在的日期"""
+        r = client.get("/api/account", params={"date": "2099-01-01"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total_asset"] == 0
