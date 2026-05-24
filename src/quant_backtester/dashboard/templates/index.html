@@ -59,6 +59,7 @@
     <input id="capital" type="number" value="10" min="1" max="1000" style="width:80px">
   </div>
   <button id="runBtn" onclick="runBacktest()">▶ 开始回测</button>
+  <button style="background:#21262d;border:1px solid var(--border);color:var(--text);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px" onclick="reloadStrategies()" title="新增策略 .py 后点这里，无需重启">🔄 刷新策略</button>
 </div>
 
 <div id="statusBar"></div>
@@ -80,6 +81,23 @@ async function loadStrategies() {
   const sel = document.getElementById('strategy');
   sel.innerHTML = data.strategies.map(s => `<option value="${s}">${s}</option>`).join('');
   document.getElementById('runBtn').disabled = false;
+}
+
+async function reloadStrategies() {
+  const btn = event.target;
+  btn.textContent = '⏳ 加载中...';
+  btn.disabled = true;
+  try {
+    const resp = await fetch(API + '/api/reload-strategies', { method: 'POST' });
+    const data = await resp.json();
+    await loadStrategies();
+    document.getElementById('statusBar').innerHTML =
+      `<div class="status done">🔄 策略已刷新 — ${data.total} 个策略${data.added.length ? '，新增: ' + data.added.join(', ') : ''}</div>`;
+  } catch (e) {
+    document.getElementById('statusBar').innerHTML = `<div class="status error">❌ 刷新失败: ${e.message}</div>`;
+  }
+  btn.textContent = '🔄 刷新策略';
+  btn.disabled = false;
 }
 
 function formatPct(v) {
