@@ -172,6 +172,16 @@ def run_one(
     for i in range(len(dates)):
         date_str = dates[i].strftime("%Y-%m-%d")
         price = float(window_daily.iloc[i]["close"])
+        prev_close = float(window_daily.iloc[i-1]["close"]) if i > 0 else price
+
+        # ── T+1 日切 ──
+        portfolio.advance_day(i)
+
+        # ── 涨跌停价 ──
+        limit_up = round(prev_close * 1.10, 2)
+        limit_down = round(prev_close * 0.90, 2)
+        is_limit_up = (price >= limit_up - 0.01)
+        is_limit_down = (price <= limit_down + 0.01)
 
         # 更新策略状态
         strategy.has_position = portfolio.has_position
@@ -187,18 +197,27 @@ def run_one(
             logger.warning(f"[{code}] 策略异常 i={i}: {e}")
             orders = []
 
-        # 执行订单
+        # 执行订单（T+1 + 涨跌停 校验）
         for order in orders:
             if order.action == "sell":
                 if not portfolio.has_position:
                     logger.warning(f"[{code}] {date_str} 卖出但无持仓: {order.reason}")
                     continue
-                portfolio.sell(price, order.pct, date_str, order.reason)
+                if portfolio.bought_day_idx >= 0 and portfolio.bought_day_idx == i:
+                    logger.info(f"[{code}] {date_str} T+1锁定,跳过卖出: {order.reason}")
+                    continue
+                if is_limit_down:
+                    logger.info(f"[{code}] {date_str} 跌停封死,跳过卖出: {order.reason}")
+                    continue
+                portfolio.sell(price, order.pct, date_str, reason=order.reason)
             elif order.action == "buy":
                 if portfolio.has_position:
                     logger.warning(f"[{code}] {date_str} 买入但已有持仓: {order.reason}")
                     continue
-                portfolio.buy(price, order.pct, date_str, order.reason)
+                if is_limit_up:
+                    logger.info(f"[{code}] {date_str} 涨停封死,跳过买入: {order.reason}")
+                    continue
+                portfolio.buy(price, order.pct, date_str, day_idx=i, reason=order.reason)
 
         # 记录权益
         equity_curve.append({

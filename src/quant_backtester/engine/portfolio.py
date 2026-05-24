@@ -50,6 +50,7 @@ class Portfolio:
     cash: float = field(init=False)
     shares: int = 0
     cost: float = 0.0
+    bought_day_idx: int = -1   # 买入日的索引 (-1=无持仓 或 隔夜底仓可T+0)
     trades: list[Trade] = field(default_factory=list)
 
     def __post_init__(self):
@@ -60,6 +61,11 @@ class Portfolio:
     @property
     def has_position(self) -> bool:
         return self.shares > 0
+
+    @property
+    def can_sell_today(self) -> bool:
+        """A股 T+1: 当日买入不可卖出。bought_day_idx=-1 表示隔夜底仓，可卖。"""
+        return self.bought_day_idx == -1
 
     @property
     def position_value(self) -> float:
@@ -84,15 +90,21 @@ class Portfolio:
         """更新最新价（每个交易日调用）。"""
         self._latest_price = price
 
+    def advance_day(self, current_day_idx: int):
+        """每个新交易日开始时调用。T+1: 如果持仓是昨天买的，今天解锁卖出。"""
+        if self.has_position and self.bought_day_idx >= 0 and current_day_idx > self.bought_day_idx:
+            self.bought_day_idx = -1  # 解锁，可卖出
+
     # ── 交易执行 ──
 
-    def buy(self, price: float, pct: float, date: str, reason: str = "") -> Trade | None:
+    def buy(self, price: float, pct: float, date: str, *, day_idx: int = -1, reason: str = "") -> Trade | None:
         """按比例买入。
 
         Args:
             price: 当前收盘价
             pct: 仓位比例 (0~1)
             date: 交易日期 "YYYY-MM-DD"
+            day_idx: 当前日期索引（用于T+1记录）
             reason: 触发原因
 
         Returns:
@@ -126,7 +138,7 @@ class Portfolio:
                 return None
 
         self.cash -= total_cost
-        # 加权成本
+        # 加权成本 + T+1 记录
         if self.shares > 0:
             total_cost_basis = self.cost * self.shares + actual_amount
             self.shares += raw_shares
@@ -134,6 +146,7 @@ class Portfolio:
         else:
             self.shares = raw_shares
             self.cost = buy_price
+        self.bought_day_idx = day_idx     # 记录买入日
 
         trade = Trade(
             date=date,
@@ -178,6 +191,7 @@ class Portfolio:
         self.shares -= sell_shares
         if self.shares == 0:
             self.cost = 0.0
+            self.bought_day_idx = -1   # 清仓后重置
 
         trade = Trade(
             date=date,
