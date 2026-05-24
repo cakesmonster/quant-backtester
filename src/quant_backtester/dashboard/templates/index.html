@@ -191,15 +191,18 @@ async function runBacktest() {
 
     if (data.error) {
       document.getElementById('statusBar').innerHTML = `<div class="status error">❌ ${data.error}</div>`;
+    } else if (!data.results) {
+      document.getElementById('statusBar').innerHTML = `<div class="status error">❌ 返回数据异常: ${JSON.stringify(data).slice(0,200)}</div>`;
     } else {
-      document.getElementById('statusBar').innerHTML = `<div class="status done">✅ 完成 — ${data.results.filter(r=>r.success).length}/${data.results.length} 成功, 耗时 ${data.elapsed_seconds?.toFixed(1)}s</div>`;
-      renderMetrics(data.aggregate);
+      const ok = data.results.filter(r => r.success).length;
+      document.getElementById('statusBar').innerHTML = `<div class="status done">✅ 完成 — ${ok}/${data.results.length} 成功, 耗时 ${data.elapsed_seconds?.toFixed(1)}s</div>`;
+      if (data.aggregate) renderMetrics(data.aggregate);
       renderChart(data.results);
       renderTable(data.results);
     }
   } catch (e) {
     document.getElementById('statusBar').innerHTML = `<div class="status error">❌ 请求失败: ${e.message}</div>`;
-  }
+  } finally {
 
   btn.disabled = false;
   btn.textContent = '▶ 开始回测';
