@@ -197,6 +197,17 @@ CREATE TABLE limit_up_history (
     sector TEXT,                -- 所属板块
     PRIMARY KEY (date, code)
 );
+
+-- 热榜快照（三时段：11:30 / 15:00 / 21:00）
+CREATE TABLE hot_rank_snapshot (
+    date TEXT, slot TEXT,        -- slot: "1130" / "1500" / "2100"
+    rank INTEGER, code TEXT, name TEXT,
+    heat_value REAL,             -- 热度值
+    concept_tag TEXT,            -- 概念标签
+    is_limit_up BOOLEAN,         -- 是否涨停
+    change_pct REAL,             -- 涨跌幅
+    PRIMARY KEY (date, slot, code)
+);
 ```
 
 股票基础信息（市值/PE/换手率/量比）不持久化，点击时实时拉取：
@@ -206,7 +217,7 @@ CREATE TABLE limit_up_history (
 
 ### 热榜快照
 
-热榜数据一次拉取即展示，不持久化（除非要做历史对比，P2 再说）。
+三时段数据存入 SQLite，支持按日期/时段回看历史热榜。
 
 ---
 
