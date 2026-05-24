@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔬 Quant Backtester</title>
+<script src="https://cdn.plot.ly/plotly-3.0.1.min.js"></script>
+<style>
+  :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #58a6ff; --green: #3fb950; --red: #f85149; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); padding: 24px; }
+  h1 { font-size: 24px; margin-bottom: 20px; }
+  .controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 20px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: #8b949e; }
+  .field select, .field input { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 6px; font-size: 14px; }
+  button { background: #238636; border: none; color: #fff; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  button:hover { background: #2ea043; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .metric-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .metric-card .label { font-size: 12px; color: #8b949e; }
+  .metric-card .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+  .positive { color: var(--green); }
+  .negative { color: var(--red); }
+  #chart { width: 100%; height: 400px; margin-bottom: 20px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 12px; text-align: right; border-bottom: 1px solid var(--border); }
+  th { color: #8b949e; font-weight: 600; position: sticky; top: 0; background: var(--bg); }
+  td:first-child, th:first-child { text-align: left; }
+  .status { padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 13px; }
+  .status.running { background: #1a2332; border: 1px solid var(--accent); }
+  .status.done { background: #122316; border: 1px solid var(--green); }
+  .status.error { background: #2d1215; border: 1px solid var(--red); }
+</style>
+</head>
+<body>
+<h1>🔬 Quant Backtester</h1>
+
+<div class="controls">
+  <div class="field">
+    <label>策略</label>
+    <select id="strategy"><option>加载中...</option></select>
+  </div>
+  <div class="field">
+    <label>股票数</label>
+    <input id="stockCount" type="number" value="10" min="1" max="100" style="width:80px">
+  </div>
+  <div class="field">
+    <label>窗口(天)</label>
+    <input id="windowDays" type="number" value="180" min="60" max="500" style="width:80px">
+  </div>
+  <div class="field">
+    <label>每只次数</label>
+    <input id="runsPerStock" type="number" value="3" min="1" max="10" style="width:80px">
+  </div>
+  <div class="field">
+    <label>初始资金(万)</label>
+    <input id="capital" type="number" value="10" min="1" max="1000" style="width:80px">
+  </div>
+  <button id="runBtn" onclick="runBacktest()">▶ 开始回测</button>
+</div>
+
+<div id="statusBar"></div>
+<div class="metrics" id="metrics"></div>
+<div id="chart"></div>
+<table id="detailTable">
+  <thead><tr>
+    <th>股票</th><th>窗口</th><th>收益率</th><th>夏普</th><th>最大回撤</th><th>胜率</th><th>交易次数</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+
+<script>
+const API = '';
+
+async function loadStrategies() {
+  const resp = await fetch(API + '/api/strategies');
+  const data = await resp.json();
+  const sel = document.getElementById('strategy');
+  sel.innerHTML = data.strategies.map(s => `<option value="${s}">${s}</option>`).join('');
+  document.getElementById('runBtn').disabled = false;
+}
+
+function formatPct(v) {
+  const cls = v >= 0 ? 'positive' : 'negative';
+  return `<span class="${cls}">${v >= 0 ? '+' : ''}${v.toFixed(1)}%</span>`;
+}
+
+function renderMetrics(agg) {
+  document.getElementById('metrics').innerHTML = `
+    <div class="metric-card"><div class="label">回测任务</div><div class="value">${agg.success_count}/${agg.task_count}</div></div>
+    <div class="metric-card"><div class="label">平均收益</div><div class="value">${formatPct(agg.avg_return_pct)}</div></div>
+    <div class="metric-card"><div class="label">中位数收益</div><div class="value">${formatPct(agg.median_return_pct)}</div></div>
+    <div class="metric-card"><div class="label">最佳</div><div class="value positive">+${agg.best_return_pct.toFixed(1)}%</div></div>
+    <div class="metric-card"><div class="label">最差</div><div class="value negative">${agg.worst_return_pct.toFixed(1)}%</div></div>
+    <div class="metric-card"><div class="label">平均夏普</div><div class="value">${agg.avg_sharpe.toFixed(3)}</div></div>
+    <div class="metric-card"><div class="label">平均回撤</div><div class="value negative">${agg.avg_max_drawdown_pct.toFixed(1)}%</div></div>
+    <div class="metric-card"><div class="label">总胜率</div><div class="value">${agg.overall_win_rate_pct.toFixed(0)}%</div></div>
+    <div class="metric-card"><div class="label">盈利任务</div><div class="value">${agg.winning_task_pct.toFixed(0)}%</div></div>
+    <div class="metric-card"><div class="label">总交易</div><div class="value">${agg.total_trades}</div></div>
+  `;
+}
+
+function renderChart(results) {
+  const traces = [];
+  for (const r of results) {
+    if (!r.success || !r.equity_curve) continue;
+    const x = r.equity_curve.map(e => e.date);
+    const y = r.equity_curve.map(e => e.return_pct);
+    traces.push({
+      x, y,
+      type: 'scatter', mode: 'lines',
+      name: `${r.code} (${r.window_start})`,
+      opacity: 0.4,
+      line: { width: 1 },
+      showlegend: false,
+      hovertemplate: '%{x}<br>%{y:.1f}%<extra></extra>',
+    });
+  }
+  Plotly.newPlot('chart', traces, {
+    template: 'plotly_dark',
+    paper_bgcolor: '#0d1117',
+    plot_bgcolor: '#0d1117',
+    margin: { l: 50, r: 20, t: 10, b: 40 },
+    xaxis: { title: '', gridcolor: '#21262d' },
+    yaxis: { title: '收益率 (%)', gridcolor: '#21262d', zerolinecolor: '#30363d' },
+  }, { responsive: true });
+}
+
+function renderTable(results) {
+  const tbody = document.querySelector('#detailTable tbody');
+  const rows = [];
+  for (const r of results) {
+    if (!r.success) continue;
+    const m = r.metrics;
+    rows.push(`
+      <tr>
+        <td>${r.code}</td>
+        <td style="font-size:11px;color:#8b949e">${r.window_start} ~ ${r.window_end}</td>
+        <td>${formatPct(m.total_return_pct)}</td>
+        <td>${m.sharpe_ratio.toFixed(3)}</td>
+        <td class="negative">${m.max_drawdown_pct.toFixed(1)}%</td>
+        <td>${m.win_rate_pct.toFixed(0)}%</td>
+        <td>${m.total_trades}</td>
+      </tr>
+    `);
+  }
+  tbody.innerHTML = rows.join('');
+}
+
+async function runBacktest() {
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ 回测中...';
+  document.getElementById('statusBar').innerHTML = '<div class="status running">⏳ 回测运行中...</div>';
+
+  const payload = {
+    strategy: document.getElementById('strategy').value,
+    stock_count: parseInt(document.getElementById('stockCount').value),
+    window_days: parseInt(document.getElementById('windowDays').value),
+    runs_per_stock: parseInt(document.getElementById('runsPerStock').value),
+    initial_capital: parseInt(document.getElementById('capital').value) * 10000,
+  };
+
+  try {
+    const resp = await fetch(API + '/api/backtest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+
+    if (data.error) {
+      document.getElementById('statusBar').innerHTML = `<div class="status error">❌ ${data.error}</div>`;
+    } else {
+      document.getElementById('statusBar').innerHTML = `<div class="status done">✅ 完成 — ${data.results.filter(r=>r.success).length}/${data.results.length} 成功, 耗时 ${data.elapsed_seconds?.toFixed(1)}s</div>`;
+      renderMetrics(data.aggregate);
+      renderChart(data.results);
+      renderTable(data.results);
+    }
+  } catch (e) {
+    document.getElementById('statusBar').innerHTML = `<div class="status error">❌ 请求失败: ${e.message}</div>`;
+  }
+
+  btn.disabled = false;
+  btn.textContent = '▶ 开始回测';
+}
+
+loadStrategies();
+</script>
+</body>
+</html>
