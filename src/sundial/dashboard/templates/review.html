@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>日晷 — 每日复盘</title>
+<script src="https://cdn.plot.ly/plotly-3.0.0.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e1e4e8;min-height:100vh}
+nav{display:flex;gap:2px;background:#161b22;padding:12px 20px;border-bottom:1px solid #30363d}
+nav a{color:#8b949e;text-decoration:none;padding:6px 16px;border-radius:6px;font-size:14px;transition:all .2s}
+nav a:hover,nav a.active{color:#f0f6fc;background:#21262d}
+.container{max-width:1300px;margin:0 auto;padding:20px}
+h1{font-size:20px;margin-bottom:16px;color:#58a6ff}
+.date-bar{display:flex;gap:12px;align-items:center;margin-bottom:20px}
+.date-bar input{padding:6px 12px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:#e1e4e8;font-size:14px}
+.date-bar button{padding:6px 16px;border:none;border-radius:6px;background:#238636;color:#fff;cursor:pointer;font-size:14px}
+.date-bar button:hover{background:#2ea043}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px}
+.card h3{font-size:12px;color:#8b949e;text-transform:uppercase;margin-bottom:8px}
+.card .value{font-size:28px;font-weight:700;color:#f0f6fc}
+.card .sub{font-size:12px;color:#8b949e;margin-top:4px}
+.up{color:#3fb950}
+.down{color:#f85149}
+.temp-bar{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin-bottom:20px}
+.temp-label{font-size:12px;color:#8b949e;margin-bottom:8px}
+.temp-value{font-size:48px;font-weight:800}
+.section{margin-bottom:24px}
+.section h2{font-size:16px;color:#f0f6fc;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #30363d}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px 12px;text-align:left;font-size:13px;border-bottom:1px solid #21262d}
+th{color:#8b949e;font-weight:500}
+.ladder-grid{display:flex;gap:12px;flex-wrap:wrap}
+.ladder-col{flex:1;min-width:160px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px}
+.ladder-col h4{font-size:14px;color:#d2a8ff;margin-bottom:8px}
+.ladder-item{font-size:13px;padding:4px 0;border-bottom:1px solid #21262d;cursor:pointer}
+.ladder-item:hover{color:#58a6ff}
+.ladder-item .code{color:#8b949e;font-size:11px}
+.loading{color:#8b949e;font-size:14px;padding:40px;text-align:center}
+</style>
+</head>
+<body>
+<nav>
+  <a href="/review" class="active">📊 每日复盘</a>
+  <a href="/hotrank">🔥 热榜</a>
+  <a href="/stock">📈 个股</a>
+  <a href="/backtest">⚡ 回测</a>
+  <a href="/account">💰 账户</a>
+</nav>
+<div class="container">
+  <div class="date-bar">
+    <h1>每日复盘</h1>
+    <input type="date" id="datePicker">
+    <button onclick="loadReview()">查询</button>
+  </div>
+  <div id="content" class="loading">加载中...</div>
+</div>
+
+<script>
+const today = new Date().toISOString().slice(0,10);
+document.getElementById('datePicker').value = today;
+
+async function loadReview() {
+  const date = document.getElementById('datePicker').value.replace(/-/g,'');
+  document.getElementById('content').innerHTML = '<div class="loading">加载中...</div>';
+  
+  const r = await fetch(`/api/review?date=${date}`);
+  const d = await r.json();
+  
+  if (!d.sentiment) {
+    document.getElementById('content').innerHTML = '<div class="loading">非交易日或无数据</div>';
+    return;
+  }
+
+  const s = d.sentiment;
+  const l = d.ladder;
+  const y = d.yesterday_performance;
+
+  // 温度颜色
+  const t = s.sentiment_temp;
+  const tc = t<=30?'#3fb950':t<=50?'#d29922':t<=70?'#f0883e':t<=85?'#f85149':'#ff0000';
+
+  document.getElementById('content').innerHTML = `
+    <!-- 指数 -->
+    <div class="grid">
+      ${idxCard('上证', s.indices.sh.close, s.indices.sh.change_pct)}
+      ${idxCard('深证', s.indices.sz.close, s.indices.sz.change_pct)}
+      ${idxCard('创业板', s.indices.cyb.close, s.indices.cyb.change_pct)}
+      ${idxCard('科创50', s.indices.kcb.close, s.indices.kcb.change_pct)}
+    </div>
+
+    <!-- 成交额 -->
+    <div class="grid">
+      <div class="card">
+        <h3>沪深成交额</h3>
+        <div class="value">${(s.amount.total/10000).toFixed(2)}万亿</div>
+        <div class="sub">沪 ${s.amount.sh}亿 · 深 ${s.amount.sz}亿</div>
+      </div>
+      <div class="card">
+        <h3>涨停 / 跌停</h3>
+        <div class="value"><span class="up">${s.limit.up_count}</span> / <span class="down">${s.limit.down_count}</span></div>
+        <div class="sub">炸板 ${s.limit.broken_count} 只 · 炸板率 ${s.limit.broken_rate}%</div>
+      </div>
+      <div class="card">
+        <h3>晋级率</h3>
+        <div class="value">${s.promotion_rate}%</div>
+        <div class="sub">昨日${y.count||0}只涨停 → 今日${y.continued||0}只继续</div>
+      </div>
+    </div>
+
+    <!-- 情绪温度计 -->
+    <div class="temp-bar">
+      <div class="temp-label">🔥 情绪温度计</div>
+      <div class="temp-value" style="color:${tc}">${t}°C <span style="font-size:16px">${s.sentiment_stage}</span></div>
+      <div style="margin-top:8px;height:8px;border-radius:4px;background:linear-gradient(90deg,#3fb950,#d29922,#f0883e,#f85149,#ff0000)">
+        <div style="width:${t}%;height:100%;border-radius:4px;background:transparent;border-right:2px solid white"></div>
+      </div>
+    </div>
+
+    <!-- 连板天梯 -->
+    <div class="section">
+      <h2>🪜 连板天梯 (涨停 ${l.total_limit_up||0} 只)</h2>
+      <div class="ladder-grid">
+        ${Object.entries(l.ladder||{}).map(([bc,stocks]) => `
+          <div class="ladder-col">
+            <h4>${bc}连板 (${stocks.length})</h4>
+            ${stocks.map(s => `<div class="ladder-item" title="${s.sector||''} 封板${s.first_time||''}">
+              <span class="code">${s.code}</span> ${s.name}
+              <span class="${(s.change_pct||0)>=0?'up':'down'}">${(s.change_pct||0).toFixed(1)}%</span>
+            </div>`).join('')}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function idxCard(name, close, pct) {
+  const cls = (pct||0) >= 0 ? 'up' : 'down';
+  const sign = (pct||0) >= 0 ? '+' : '';
+  return `<div class="card">
+    <h3>${name}</h3>
+    <div class="value">${close.toFixed(2)}</div>
+    <div class="sub ${cls}">${sign}${(pct||0).toFixed(2)}%</div>
+  </div>`;
+}
+
+loadReview();
+</script>
+</body>
+</html>

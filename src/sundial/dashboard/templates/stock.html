@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>日晷 — 个股分析</title>
+<script src="https://cdn.plot.ly/plotly-3.0.0.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e1e4e8}
+nav{display:flex;gap:2px;background:#161b22;padding:12px 20px;border-bottom:1px solid #30363d}
+nav a{color:#8b949e;text-decoration:none;padding:6px 16px;border-radius:6px;font-size:14px}
+nav a:hover,nav a.active{color:#f0f6fc;background:#21262d}
+.container{max-width:1000px;margin:0 auto;padding:20px}
+h1{font-size:20px;color:#58a6ff;margin-bottom:16px}
+.search{display:flex;gap:12px;margin-bottom:20px}
+.search input{padding:8px 14px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:#e1e4e8;font-size:16px;width:200px}
+.search button{padding:8px 20px;border:none;border-radius:6px;background:#238636;color:#fff;cursor:pointer;font-size:14px}
+#chart{background:#161b22;border:1px solid #30363d;border-radius:8px;margin-top:16px}
+.loading{color:#8b949e;text-align:center;padding:60px}
+</style>
+</head>
+<body>
+<nav>
+  <a href="/review">📊 每日复盘</a>
+  <a href="/hotrank">🔥 热榜</a>
+  <a href="/stock" class="active">📈 个股</a>
+  <a href="/backtest">⚡ 回测</a>
+  <a href="/account">💰 账户</a>
+</nav>
+<div class="container">
+  <h1>个股K线</h1>
+  <div class="search">
+    <input type="text" id="codeInput" placeholder="输入代码 (600519)" value="600519">
+    <button onclick="loadStock()">查询</button>
+  </div>
+  <div id="chart"></div>
+  <div id="info" style="margin-top:16px;font-size:14px;color:#8b949e"></div>
+</div>
+
+<script>
+async function loadStock() {
+  const code = document.getElementById('codeInput').value.trim();
+  if(!code) return;
+  document.getElementById('chart').innerHTML = '<div class="loading">加载中...</div>';
+  
+  const r = await fetch(`/api/stock/${code}`);
+  const d = await r.json();
+  const kl = d.klines || [];
+  if(!kl.length){ document.getElementById('chart').innerHTML='<div class="loading">无数据</div>'; return; }
+
+  const last = kl[kl.length-1];
+  document.getElementById('info').innerHTML = `${code} · 最新价 <b>${last.close.toFixed(2)}</b> · 涨跌 <b style="color:${last.change_pct>=0?'#3fb950':'#f85149'}">${(last.change_pct||0).toFixed(2)}%</b> · 成交额 ${(last.amount/1e8).toFixed(1)}亿`;
+
+  const trace = {
+    x: kl.map(k=>k.date), y: kl.map(k=>k.close),
+    type:'scatter', mode:'lines',
+    line:{color:'#58a6ff',width:2},
+    name:'收盘价'
+  };
+  Plotly.newPlot('chart', [trace], {
+    template:'plotly_dark',
+    paper_bgcolor:'#161b22', plot_bgcolor:'#161b22',
+    margin:{l:50,r:20,t:10,b:40},
+    xaxis:{showgrid:false,color:'#8b949e'},
+    yaxis:{showgrid:true,gridcolor:'#21262d',color:'#8b949e',side:'right'},
+    showlegend:false
+  }, {responsive:true});
+}
+loadStock();
+</script>
+</body>
+</html>

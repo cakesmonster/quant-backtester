@@ -1,41 +1,39 @@
 #!/bin/bash
-# quant-backtester 公网开关
-# 用法: bash toggle-public.sh         → 切换（开↔关）
-#       bash toggle-public.sh on      → 开放 0.0.0.0
-#       bash toggle-public.sh off     → 关闭 127.0.0.1
-set -e
+# 公网开关 — 切换日晷绑定地址
+# 用法: ./toggle-public.sh [on|off]
 
-SVC="/etc/systemd/system/quant-backtester.service"
-current=$(grep '\-\-host' "$SVC" | sed 's/.*--host \([^ ]*\).*/\1/')
+ACTION="${1:-status}"
+SERVICE="sundial.service"
+ENV_FILE="/etc/systemd/system/sundial.service.d/env.conf"
 
-case "${1:-toggle}" in
-  on|open)     new="0.0.0.0";   label="🟢 开放 0.0.0.0" ;;
-  off|close)    new="127.0.0.1"; label="🔒 关闭 127.0.0.1" ;;
-  toggle)
-    if [ "$current" = "0.0.0.0" ]; then
-      new="127.0.0.1"; label="🔒 关闭 127.0.0.1"
-    else
-      new="0.0.0.0";   label="🟢 开放 0.0.0.0"
-    fi
-    ;;
+case "$ACTION" in
+    on)
+        echo "🔓 开放公网访问 (0.0.0.0:8200)"
+        mkdir -p "$(dirname "$ENV_FILE")"
+        cat > "$ENV_FILE" <<EOF
+[Service]
+Environment=SUNDIAL_HOST=0.0.0.0
+EOF
+        systemctl daemon-reload
+        systemctl restart "$SERVICE"
+        echo "已开放 — 确保防火墙放行 8200 端口"
+        ;;
+    off)
+        echo "🔒 关闭公网访问 (127.0.0.1:8200)"
+        rm -f "$ENV_FILE"
+        systemctl daemon-reload
+        systemctl restart "$SERVICE"
+        echo "已关闭 — 仅本地可访问"
+        ;;
+    status)
+        if [ -f "$ENV_FILE" ] && grep -q "0.0.0.0" "$ENV_FILE" 2>/dev/null; then
+            echo "🔓 当前: 公网 (0.0.0.0:8200)"
+        else
+            echo "🔒 当前: 本地 (127.0.0.1:8200)"
+        fi
+        ;;
+    *)
+        echo "用法: $0 [on|off|status]"
+        exit 1
+        ;;
 esac
-
-if [ "$current" = "$new" ]; then
-  echo "已是 $current，无需切换"
-  exit 0
-fi
-
-sed -i "s/--host [^ ]*/--host $new/" "$SVC"
-systemctl daemon-reload
-systemctl restart quant-backtester
-
-# 等就绪
-for i in $(seq 1 10); do
-  if curl -s http://127.0.0.1:8100/api/health > /dev/null 2>&1; then
-    break
-  fi
-  sleep 2
-done
-
-echo "监听: $(ss -tlnp 2>/dev/null | grep 8100 || echo '端口 8100')"
-echo "$label — 完成"

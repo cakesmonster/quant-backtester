@@ -10,7 +10,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quant_backtester.engine.portfolio import Portfolio
+
+# Lazy import to avoid failing when only sundial tests run
+def _get_portfolio():
+    from quant_backtester.engine.portfolio import Portfolio
+    return Portfolio
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -223,14 +227,16 @@ def limit_down_daily() -> pd.DataFrame:
 
 
 @pytest.fixture
-def portfolio_100k() -> Portfolio:
+def portfolio_100k():
     """10万初始资金的虚拟账户。"""
+    Portfolio = _get_portfolio()
     return Portfolio(initial_capital=100_000)
 
 
 @pytest.fixture
-def portfolio_with_position() -> Portfolio:
+def portfolio_with_position():
     """持有 1000 股、成本 10 元的账户。"""
+    Portfolio = _get_portfolio()
     p = Portfolio(initial_capital=100_000)
     # 手动设置持仓（模拟已买入跨夜）
     p.shares = 1000
