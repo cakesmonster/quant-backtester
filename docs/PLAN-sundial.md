@@ -21,8 +21,8 @@
 | Web 框架 | FastAPI | 与现有系统一致 |
 | 前端 | 单页 HTML + Plotly.js + htmx | 零前端构建 |
 | 数据源 | mootdx (Level-2/逐笔/分钟K) + 同花顺 API | 免费 |
-| 存储 | SQLite | 涨停历史、连板数据持久化 |
-| 缓存 | Parquet (同回测项目) | K线本地缓存 |
+| 时序存储 | Parquet | 日线K线本地缓存（3300只 × 10年） |
+| 元数据存储 | SQLite | 涨停历史 / 股票基础信息 |
 | 部署 | systemd + 公网开关 | 同现有模式 |
 
 ---
@@ -110,7 +110,7 @@
 
 点击任意涨停股 → 弹出/侧边展示当日 1 分钟 K 线分时图（Plotly）。
 
-**数据来源：** mootdx `get_bars(frequency=7)` 拉 1-min K 线，实时更新。
+**数据来源：** mootdx `get_bars(frequency=7)` 拉 1-min K 线，实时拉取不持久化。当天数据盘中缓存内存、收盘丢弃。
 
 #### 3.6 大单买入卖出
 
