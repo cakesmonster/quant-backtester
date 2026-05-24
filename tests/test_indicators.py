@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from quant_backtester.engine.indicators import (
-    sma, ema,
+    sma, ema, sma_multi, ema_multi, add_mas,
     macd, kdj, rsi,
     bollinger, atr, vol_ma,
     golden_cross, dead_cross,
@@ -40,7 +40,6 @@ class TestEMA:
         s = pd.Series([1, 2, 3, 4, 5], dtype=float)
         result = ema(s, 3)
         assert pd.notna(result.iloc[-1])
-        # EMA(3) 应该偏向于近期值
         assert result.iloc[-1] > 3.0
 
     def test_ema_follows_trend(self):
@@ -48,8 +47,68 @@ class TestEMA:
         s = pd.Series(list(range(1, 11)), dtype=float)
         ema3 = ema(s, 3)
         sma3 = sma(s, 3)
-        # EMA 最近值应 > SMA（因为是上升趋势）
         assert ema3.iloc[-1] > sma3.iloc[-1]
+
+
+# ═══════════════════════════════════════════════════════════════
+# sma_multi / ema_multi / add_mas
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestMultiMA:
+    def test_sma_multi_columns(self):
+        close = pd.Series(np.linspace(10, 20, 200), dtype=float)
+        mas = sma_multi(close, [5, 10, 20])
+        assert list(mas.columns) == ["ma5", "ma10", "ma20"]
+        assert len(mas) == 200
+
+    def test_sma_multi_values_consistent(self):
+        close = pd.Series(np.linspace(10, 20, 200), dtype=float)
+        mas = sma_multi(close, [5, 10])
+        s5 = sma(close, 5)
+        # 后段数据应一致
+        assert (mas["ma5"].iloc[50:].round(6) == s5.iloc[50:].round(6)).all()
+
+    def test_ema_multi(self):
+        close = pd.Series(np.linspace(10, 20, 100), dtype=float)
+        emas = ema_multi(close, [12, 26])
+        assert list(emas.columns) == ["ema12", "ema26"]
+
+    def test_add_mas_default_periods(self):
+        import numpy as np
+        df = pd.DataFrame({
+            "open": np.linspace(10, 20, 100),
+            "close": np.linspace(10, 20, 100),
+            "high": np.linspace(11, 21, 100),
+            "low": np.linspace(9, 19, 100),
+            "volume": np.ones(100) * 1e6,
+        })
+        result = add_mas(df)
+        assert "ma5" in result.columns
+        assert "ma10" in result.columns
+        assert "ma20" in result.columns
+        assert "ma60" in result.columns
+        # 原地修改
+        assert result is df
+
+    def test_add_mas_custom_periods(self):
+        df = pd.DataFrame({
+            "close": pd.Series(np.linspace(10, 20, 100), dtype=float),
+        })
+        add_mas(df, periods=[3, 7])
+        assert "ma3" in df.columns
+        assert "ma7" in df.columns
+        assert "ma5" not in df.columns  # 不在自定义列表
+
+    def test_add_mas_nan_prefix(self):
+        """前 N-1 根 bar 的 MA 为 NaN。"""
+        df = pd.DataFrame({
+            "close": pd.Series(np.linspace(10, 20, 100), dtype=float),
+        })
+        add_mas(df, periods=[20])
+        assert pd.isna(df["ma20"].iloc[0])
+        assert pd.isna(df["ma20"].iloc[18])
+        assert pd.notna(df["ma20"].iloc[19])  # 第 20 根有值
 
 
 # ═══════════════════════════════════════════════════════════════

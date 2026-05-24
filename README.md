@@ -253,6 +253,9 @@ class MyStrategy(BaseStrategy):
 |------|------|
 | `sma(series, n)` | N日简单均线 |
 | `ema(series, n)` | N日指数均线 |
+| `sma_multi(series, [5,10,20,60])` | 一次算多条 SMA → DataFrame |
+| `ema_multi(series, [12,26])` | 一次算多条 EMA → DataFrame |
+| `add_mas(df)` | 为 OHLCV DataFrame 添加 ma5/10/20/60 列 |
 | `macd(close, fast, slow, signal)` | MACD → (DIF, DEA, 柱) |
 | `kdj(high, low, close, n, k_p, d_p)` | KDJ → (K, D, J) |
 | `rsi(close, n)` | RSI |

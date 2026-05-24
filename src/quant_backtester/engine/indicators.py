@@ -10,7 +10,6 @@ import pandas as pd
 
 # ── 均线 ────────────────────────────────────────────
 
-
 def sma(series: pd.Series, n: int) -> pd.Series:
     """简单移动平均"""
     return series.rolling(window=n).mean()
@@ -19,6 +18,48 @@ def sma(series: pd.Series, n: int) -> pd.Series:
 def ema(series: pd.Series, n: int) -> pd.Series:
     """指数移动平均"""
     return series.ewm(span=n, adjust=False).mean()
+
+
+def sma_multi(series: pd.Series, periods: list[int]) -> pd.DataFrame:
+    """一次计算多条 SMA。
+
+    Args:
+        series: 价格序列（通常 close）
+        periods: 周期列表，如 [5, 10, 20, 60]
+
+    Returns:
+        DataFrame，列名 ma5/ma10/ma20/ma60
+    """
+    result = pd.DataFrame(index=series.index)
+    for n in periods:
+        result[f"ma{n}"] = sma(series, n)
+    return result
+
+
+def ema_multi(series: pd.Series, periods: list[int]) -> pd.DataFrame:
+    """一次计算多条 EMA。"""
+    result = pd.DataFrame(index=series.index)
+    for n in periods:
+        result[f"ema{n}"] = ema(series, n)
+    return result
+
+
+def add_mas(df: pd.DataFrame, periods: list[int] | None = None) -> pd.DataFrame:
+    """为 OHLCV DataFrame 原地添加 MA 列。
+
+    Args:
+        df: 含 close 列的 OHLCV DataFrame
+        periods: 周期列表，默认日线 [5,10,20,60]
+
+    Returns:
+        同一个 DataFrame（已附加 ma5/ma10/... 列）
+    """
+    if periods is None:
+        periods = [5, 10, 20, 60]
+    close = df["close"]
+    for n in periods:
+        df[f"ma{n}"] = sma(close, n)
+    return df
 
 
 # ── MACD ────────────────────────────────────────────
