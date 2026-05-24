@@ -18,7 +18,8 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
-from quant_backtester.config import FASTAPI_HOST, FASTAPI_PORT
+from quant_backtester.auth import AuthMiddleware
+from quant_backtester.config import FASTAPI_HOST, FASTAPI_PORT, PUBLIC_KEY
 from quant_backtester.data.cache import cache_stats
 from quant_backtester.data.stock_pool import pool_stats, random_sample
 from quant_backtester.engine.backtest import run_one
@@ -30,6 +31,9 @@ app = FastAPI(
     description="A股量化回测框架 — 通达信K线 + 策略插件",
     version="0.2.0",
 )
+
+# 认证中间件
+app.add_middleware(AuthMiddleware)
 
 # 启动时发现所有策略
 STRATEGIES = discover_strategies()
@@ -60,6 +64,13 @@ def index():
 @app.get("/api/health")
 def health():
     return {"status": "ok", "version": "0.2.0"}
+
+
+@app.post("/api/auth/verify")
+def auth_verify(data: dict):
+    """验证 API Key 是否有效。前端登录用。"""
+    key = data.get("key", "")
+    return {"valid": key == PUBLIC_KEY}
 
 
 @app.get("/api/strategies")

@@ -32,9 +32,31 @@
   .status.running { background: #1a2332; border: 1px solid var(--accent); }
   .status.done { background: #122316; border: 1px solid var(--green); }
   .status.error { background: #2d1215; border: 1px solid var(--red); }
+
+  /* 登录页 */
+  #login { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; }
+  #login .box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 40px; width: 400px; text-align: center; }
+  #login h2 { margin-bottom: 8px; }
+  #login p { color: #8b949e; font-size: 13px; margin-bottom: 20px; }
+  #login input { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 6px; font-size: 14px; width: 100%; }
+  #login button { margin-top: 16px; width: 100%; }
 </style>
 </head>
 <body>
+
+<!-- 登录门禁 -->
+<div id="login">
+  <div class="box">
+    <h2>🔐 身份验证</h2>
+    <p>请输入 API Key 以访问回测系统</p>
+    <input id="keyInput" type="password" placeholder="粘贴 PUBLIC_KEY ..." autofocus>
+    <button onclick="doLogin()">验证并进入</button>
+    <div id="loginMsg" style="margin-top:12px;font-size:13px;color:var(--red)"></div>
+  </div>
+</div>
+
+<!-- 主界面（登录后显示） -->
+<div id="app" hidden>
 <h1>🔬 Quant Backtester</h1>
 
 <div class="controls">
@@ -75,13 +97,69 @@
   </tr></thead>
   <tbody></tbody>
 </table>
+</div>
 
 <script>
 const API = '';
+let _apiKey = '';
 let _strategyDetails = {};
 
+/* ── 登录 ─────────────────────────────────────── */
+
+function authHeaders() {
+  return { 'Authorization': 'Bearer ' + _apiKey, 'Content-Type': 'application/json' };
+}
+
+async function tryAutoLogin() {
+  const saved = localStorage.getItem('qb_api_key');
+  if (!saved) return false;
+  try {
+    const resp = await fetch(API + '/api/auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: saved }),
+    });
+    const data = await resp.json();
+    if (data.valid) { _apiKey = saved; return true; }
+  } catch (_) {}
+  return false;
+}
+
+async function doLogin() {
+  const key = document.getElementById('keyInput').value.trim();
+  const msg = document.getElementById('loginMsg');
+  if (!key) { msg.textContent = '请输入 Key'; return; }
+
+  try {
+    const resp = await fetch(API + '/api/auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+    const data = await resp.json();
+    if (data.valid) {
+      _apiKey = key;
+      localStorage.setItem('qb_api_key', key);
+      document.getElementById('login').hidden = true;
+      document.getElementById('app').hidden = false;
+      loadStrategies();
+    } else {
+      msg.textContent = '❌ Key 无效';
+    }
+  } catch (e) {
+    msg.textContent = '❌ 网络错误: ' + e.message;
+  }
+}
+
+// 回车登录
+document.getElementById('keyInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+
+/* ── 策略 ─────────────────────────────────────── */
+
 async function loadStrategies() {
-  const resp = await fetch(API + '/api/strategies');
+  const resp = await fetch(API + '/api/strategies', { headers: authHeaders() });
   const data = await resp.json();
   _strategyDetails = data.details || {};
   const sel = document.getElementById('strategy');
@@ -108,7 +186,7 @@ async function reloadStrategies() {
   btn.textContent = '⏳ 加载中...';
   btn.disabled = true;
   try {
-    const resp = await fetch(API + '/api/reload-strategies', { method: 'POST' });
+    const resp = await fetch(API + '/api/reload-strategies', { method: 'POST', headers: authHeaders() });
     const data = await resp.json();
     await loadStrategies();
     document.getElementById('statusBar').innerHTML =
@@ -119,6 +197,8 @@ async function reloadStrategies() {
   btn.textContent = '🔄 刷新策略';
   btn.disabled = false;
 }
+
+/* ── 渲染 ─────────────────────────────────────── */
 
 function formatPct(v) {
   const cls = v >= 0 ? 'positive' : 'negative';
@@ -187,6 +267,8 @@ function renderTable(results) {
   tbody.innerHTML = rows.join('');
 }
 
+/* ── 回测 ─────────────────────────────────────── */
+
 async function runBacktest() {
   const btn = document.getElementById('runBtn');
   btn.disabled = true;
@@ -204,7 +286,7 @@ async function runBacktest() {
   try {
     const resp = await fetch(API + '/api/backtest', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify(payload),
     });
     const data = await resp.json();
@@ -223,13 +305,20 @@ async function runBacktest() {
   } catch (e) {
     document.getElementById('statusBar').innerHTML = `<div class="status error">❌ 请求失败: ${e.message}</div>`;
   } finally {
-
-  btn.disabled = false;
-  btn.textContent = '▶ 开始回测';
+    btn.disabled = false;
+    btn.textContent = '▶ 开始回测';
   }
 }
 
-loadStrategies();
+/* ── 启动 ─────────────────────────────────────── */
+
+(async function init() {
+  if (await tryAutoLogin()) {
+    document.getElementById('login').hidden = true;
+    document.getElementById('app').hidden = false;
+    loadStrategies();
+  }
+})();
 </script>
 </body>
 </html>
