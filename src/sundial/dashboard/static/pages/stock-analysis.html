@@ -1,0 +1,79 @@
+<section class="page is-active" data-page="stock-analysis">
+  <section class="card">
+    <div class="card-head">
+      <div>
+        <h2 class="card-title">个股分析</h2>
+        <p class="card-subtitle">输入代码查询当日数据，联动队友与大单异动</p>
+      </div>
+      <div class="controls">
+        <input id="stock-search-input" type="text" value="600519" placeholder="输入股票代码，例如 600519" />
+        <button id="stock-search-btn" class="btn-primary" type="button">查询</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="page-grid-2">
+    <article class="card">
+      <div class="card-head">
+        <h3 class="card-title">股票信息与分时 / 日K</h3>
+      </div>
+      <div class="card-body">
+        <div id="stock-info"></div>
+        <div class="chart-toolbar">
+          <div id="stock-chart-mode" class="chart-tools" role="tablist" aria-label="图形模式">
+            <button class="chart-chip is-active" type="button" data-mode="kline">日K蜡烛</button>
+            <button class="chart-chip" type="button" data-mode="intraday">分时线</button>
+          </div>
+          <div class="chart-tools" aria-hidden="true">
+            <span class="chart-chip is-active">Candles</span>
+            <span class="chart-chip">Volume</span>
+            <span class="chart-chip">SMA</span>
+          </div>
+        </div>
+        <div id="kline-wrap" class="kline-wrap">
+          <svg id="dayk-candle" class="kline-svg" viewBox="0 0 880 320" preserveAspectRatio="none" aria-label="日K蜡烛图"></svg>
+          <svg id="dayk-volume" class="kline-vol" viewBox="0 0 880 80" preserveAspectRatio="none" aria-label="成交量"></svg>
+          <div id="kline-tooltip" class="kline-tooltip"></div>
+        </div>
+        <div id="intraday-wrap" class="chart-wrap hide" style="margin-top:14px">
+          <canvas id="intraday-chart" class="canvas" aria-label="分时图"></canvas>
+          <div class="chart-tooltip"></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-head">
+        <h3 class="card-title">找队友</h3>
+        <div id="teammate-tabs" class="inline-tabs" role="tablist" aria-label="队友模式">
+          <button class="inline-tab is-active" data-mode="concept" type="button">同概念</button>
+          <button class="inline-tab" data-mode="trend" type="button">走势相似</button>
+        </div>
+      </div>
+      <div id="stock-teammate-pane" class="card-body"></div>
+    </article>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h3 class="card-title">大单异动（≥3000手）</h3>
+      <p class="card-subtitle">时间 | 方向 | 数量 | 金额 | 成交价</p>
+    </div>
+    <div class="card-body">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="sortable">时间</th>
+              <th class="sortable">方向</th>
+              <th class="right sortable">数量(手)</th>
+              <th class="right sortable">金额</th>
+              <th class="right sortable">成交价</th>
+            </tr>
+          </thead>
+          <tbody id="block-trade-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</section>

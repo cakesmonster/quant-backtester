@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>日晷 - A 股市场看板</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/css/app.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="topbar-main">
+          <div class="brand" aria-label="品牌">
+            <span class="logo-dot" aria-hidden="true"></span>
+            <div>
+              <div class="brand-main">日晷</div>
+              <div class="brand-sub">Sundial</div>
+            </div>
+          </div>
+
+          <nav id="nav-tabs" class="nav-tabs" aria-label="主导航">
+            <button class="nav-tab is-active" type="button" data-page="daily-replay">每日复盘</button>
+            <button class="nav-tab" type="button" data-page="hot-list">热榜</button>
+            <button class="nav-tab" type="button" data-page="stock-analysis">个股分析</button>
+            <button class="nav-tab" type="button" data-page="strategy-backtest">策略回测</button>
+            <button class="nav-tab" type="button" data-page="paper-account">模拟账户</button>
+          </nav>
+        </div>
+
+        <div class="topbar-right" aria-label="市场状态与快捷区">
+          <div class="market-state">
+            <span class="pulse" aria-hidden="true"></span>
+            <span>交易中</span>
+            <span class="mono">15:00 CST</span>
+          </div>
+          <div class="search-pill" aria-hidden="true">
+            <span>搜索代码 / 板块 / 公告</span>
+            <span class="kbd"><kbd>⌘</kbd><kbd>K</kbd></span>
+          </div>
+          <span class="avatar" aria-label="账户">沪</span>
+        </div>
+      </header>
+
+      <div class="ticker-tape" aria-label="市场行情带">
+        <div id="market-tape" class="tape"></div>
+      </div>
+
+      <main class="page-wrap" id="page-host" aria-live="polite">
+        <section class="card">
+          <div class="card-body">
+            <div class="skeleton-grid">
+              <div class="skeleton" style="height: 22px"></div>
+              <div class="skeleton" style="height: 22px"></div>
+              <div class="skeleton" style="height: 22px"></div>
+              <div class="skeleton" style="height: 22px"></div>
+              <div class="skeleton" style="height: 22px"></div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <span>数据更新时间：<strong id="updated-at">--</strong></span>
+        <span>数据口径：A股市场实时数据</span>
+      </footer>
+    </div>
+
+    <aside id="hover-card" class="hover-card" aria-hidden="true">
+      <h5 id="hover-card-name">--</h5>
+      <div id="hover-card-code" class="section-note" style="margin-top:2px">--</div>
+      <div id="hover-fields" class="hover-grid"></div>
+      <div id="hover-tags" class="hover-tags"></div>
+    </aside>
+
+    <div id="teammate-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-label="找队友弹窗">
+      <div class="modal">
+        <div class="modal-head">
+          <h3 id="teammate-title" class="card-title">找队友</h3>
+          <button id="close-teammate-modal" type="button">关闭</button>
+        </div>
+        <div id="teammate-body" class="modal-body"></div>
+      </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+  </body>
+</html>

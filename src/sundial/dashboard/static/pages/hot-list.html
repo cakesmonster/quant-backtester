@@ -1,0 +1,36 @@
+<section class="page is-active" data-page="hot-list">
+  <section class="card">
+    <div class="card-head">
+      <div>
+        <h2 class="card-title">热榜</h2>
+        <p class="card-subtitle">按时段查看热度变化，涨停股可直达个股分析</p>
+      </div>
+      <div class="controls">
+        <input id="hot-date" type="date" />
+        <div id="hot-period-tabs" class="inline-tabs" role="tablist" aria-label="时段选择">
+          <button class="tab-btn is-active" data-period="11:30" type="button">11:30</button>
+          <button class="tab-btn" data-period="15:00" type="button">15:00</button>
+          <button class="tab-btn" data-period="21:00" type="button">21:00</button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="right sortable">排名</th>
+              <th>代码</th>
+              <th>名称</th>
+              <th class="right sortable">热度值</th>
+              <th>概念标签</th>
+              <th class="right sortable">涨跌幅</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="hot-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</section>

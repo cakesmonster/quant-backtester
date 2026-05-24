@@ -1,0 +1,94 @@
+<section class="page is-active" data-page="daily-replay">
+  <section class="card">
+    <div class="card-head">
+      <div>
+        <h2 class="card-title">每日复盘</h2>
+        <p class="card-subtitle">市场情绪全景 · 连板结构 · 板块攻击路线</p>
+      </div>
+      <div class="controls">
+        <label class="section-note" for="daily-date">复盘日期</label>
+        <input id="daily-date" type="date" />
+      </div>
+    </div>
+    <div class="card-body">
+      <div id="daily-emotion-row" class="kpi-row"></div>
+      <div id="daily-live-bars" class="realtime-bars" aria-label="实时情绪横条"></div>
+    </div>
+  </section>
+
+  <section class="page-grid-2">
+    <article class="card">
+      <div class="card-head">
+        <h3 class="card-title">昨日涨停今日表现</h3>
+        <p class="card-subtitle">继续涨停 / 红盘 / 绿盘 / 跌停</p>
+      </div>
+      <div class="card-body page-grid-2" style="align-items:center">
+        <div class="bar-row" id="yd-performance-bars"></div>
+        <div>
+          <div id="yd-performance-avg" class="big-stat">+0.00%</div>
+          <div id="yd-performance-range" class="section-note" style="margin-top:6px">最高 +0.00% / 最低 -0.00%</div>
+        </div>
+      </div>
+    </article>
+
+    <article id="auction-wrap" class="card">
+      <div class="card-head">
+        <h3 class="card-title">竞价异动（仅今日）</h3>
+        <p class="card-subtitle">历史日期自动隐藏</p>
+      </div>
+      <div class="card-body">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="sortable">时间</th>
+                <th>代码</th>
+                <th>名称</th>
+                <th class="sortable">类型</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody id="auction-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h3 class="card-title">连板天梯</h3>
+      <p class="card-subtitle">按连板数降序分组，hover 查看估值与标签</p>
+    </div>
+    <div class="card-body page-grid-2">
+      <div id="ladder-wrap" class="level-group"></div>
+      <div>
+        <div class="level-title">淘汰区（昨日涨停今日破板）</div>
+        <div id="eliminated-wrap" class="stock-chip-wrap" style="margin-top:8px"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h3 class="card-title">板块攻击路线</h3>
+      <p class="card-subtitle">领涨 / 领跌对照 + 资金切换判断</p>
+    </div>
+    <div class="card-body page-grid-2">
+      <div>
+        <p class="section-note" style="margin:0 0 8px">领涨板块</p>
+        <div id="sector-up" class="bar-row"></div>
+      </div>
+      <div>
+        <p class="section-note" style="margin:0 0 8px">领跌板块</p>
+        <div id="sector-down" class="bar-row"></div>
+      </div>
+      <div class="card" style="grid-column:1/-1">
+        <div class="card-body">
+          <strong>资金切换总结：</strong>
+          <span id="sector-summary" class="section-note"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+</section>

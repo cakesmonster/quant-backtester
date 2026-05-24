@@ -1,0 +1,90 @@
+<section class="page is-active" data-page="strategy-backtest">
+  <section class="card">
+    <div class="card-head">
+      <div>
+        <h2 class="card-title">策略回测</h2>
+        <p class="card-subtitle">策略参数控制 + 指标结果 + 权益曲线</p>
+      </div>
+      <div class="controls controls-backtest">
+        <label class="ctrl-field ctrl-select">
+          <span class="ctrl-label">策略</span>
+          <select id="strategy-select" aria-label="策略选择"></select>
+        </label>
+        <label class="ctrl-field">
+          <span class="ctrl-label">股票数量</span>
+          <input id="bt-stock-count" type="number" value="20" min="5" max="60" title="每轮选股池规模" />
+          <span class="ctrl-hint">每轮纳入标的数</span>
+        </label>
+        <label class="ctrl-field">
+          <span class="ctrl-label">窗口天数</span>
+          <input id="bt-window-days" type="number" value="60" min="10" max="240" title="回测滚动窗口天数" />
+          <span class="ctrl-hint">滚动观测区间</span>
+        </label>
+        <label class="ctrl-field">
+          <span class="ctrl-label">每只次数</span>
+          <input id="bt-trade-times" type="number" value="2" min="1" max="10" title="单只股票最多交易次数" />
+          <span class="ctrl-hint">单票最大交易次数</span>
+        </label>
+        <label class="ctrl-field">
+          <span class="ctrl-label">初始资金(万)</span>
+          <input id="bt-capital" type="number" value="100" min="10" max="5000" title="回测初始资金（万元）" />
+          <span class="ctrl-hint">资金基准</span>
+        </label>
+        <button id="run-backtest-btn" class="btn-primary" type="button">开始回测</button>
+        <button id="refresh-strategy-btn" type="button">刷新策略</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <p id="strategy-desc" class="section-note">策略描述加载中…</p>
+      <p id="strategy-config-note" class="config-note">参数摘要加载中…</p>
+      <div id="strategy-param-pills" class="param-pills" aria-label="参数语义卡"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h3 class="card-title">结果指标</h3>
+      <p id="strategy-title-note" class="card-subtitle">当前配置：--</p>
+    </div>
+    <div class="card-body">
+      <div id="backtest-metrics" class="metric-strip"></div>
+    </div>
+  </section>
+
+  <section class="page-grid-2">
+    <article class="card">
+      <div class="card-head">
+        <h3 class="card-title">权益曲线叠加图</h3>
+        <p class="card-subtitle">多窗口半透明叠加（示意）</p>
+      </div>
+      <div class="card-body chart-wrap">
+        <canvas id="equity-curves" class="canvas" aria-label="权益曲线叠加图"></canvas>
+        <div class="chart-tooltip"></div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-head">
+        <h3 class="card-title">回测明细</h3>
+      </div>
+      <div class="card-body">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>股票</th>
+                <th class="right sortable">窗口</th>
+                <th class="right sortable">收益率</th>
+                <th class="right sortable">夏普</th>
+                <th class="right sortable">最大回撤</th>
+                <th class="right sortable">胜率</th>
+                <th class="right sortable">交易次数</th>
+              </tr>
+            </thead>
+            <tbody id="backtest-detail-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </article>
+  </section>
+</section>

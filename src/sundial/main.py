@@ -1,19 +1,21 @@
-"""日晷 FastAPI 入口"""
-
+"""日晷 FastAPI 入口 — SPA 前端 + REST API"""
+import json
 from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 from .config import HOST, PORT
 from .db import init_db, get_hot_rank
 
-app = FastAPI(title="日晷 Sundial", version="0.1.0")
+app = FastAPI(title="日晷 Sundial", version="0.3.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-TEMPLATE_DIR = Path(__file__).parent / "dashboard" / "templates"
+DASHBOARD = Path(__file__).parent / "dashboard"
+STATIC = DASHBOARD / "static"
 
 
 @app.on_event("startup")
@@ -21,44 +23,46 @@ async def startup():
     init_db()
 
 
+# ── 静态资源 ──
+
+app.mount("/static/css", StaticFiles(directory=str(STATIC / "css")), name="css")
+app.mount("/static/js", StaticFiles(directory=str(STATIC / "js")), name="js")
+app.mount("/static/pages", StaticFiles(directory=str(STATIC / "pages")), name="pages")
+
+
+# ── SPA 入口 ──
+
+def _render_index() -> str:
+    return (DASHBOARD / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index():
+    return _render_index()
+
+
+# 兼容旧路由（都指向 SPA）
+for route in ["/review", "/hotrank", "/stock", "/backtest", "/account"]:
+    app.get(route, response_class=HTMLResponse)(lambda: _render_index())
+
+
+# ── API 路由 ──
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "name": "sundial"}
 
 
-# ── 页面路由 ──
+@app.get("/api/dashboard")
+async def api_dashboard(date: str = Query(None)):
+    """SPA 聚合端点 — 返回完整 data.json shape"""
+    from .services.dashboard import build_dashboard
+    data = await build_dashboard(date)
+    return Response(
+        content=json.dumps(data, ensure_ascii=False),
+        media_type="application/json; charset=utf-8",
+    )
 
-@app.get("/", response_class=HTMLResponse)
-async def index():
-    return (TEMPLATE_DIR / "review.html").read_text(encoding="utf-8")
-
-
-@app.get("/review", response_class=HTMLResponse)
-async def review_page():
-    return (TEMPLATE_DIR / "review.html").read_text(encoding="utf-8")
-
-
-@app.get("/hotrank", response_class=HTMLResponse)
-async def hotrank_page():
-    return (TEMPLATE_DIR / "hotrank.html").read_text(encoding="utf-8")
-
-
-@app.get("/stock", response_class=HTMLResponse)
-async def stock_page():
-    return (TEMPLATE_DIR / "stock.html").read_text(encoding="utf-8")
-
-
-@app.get("/backtest", response_class=HTMLResponse)
-async def backtest_page():
-    return (TEMPLATE_DIR / "backtest.html").read_text(encoding="utf-8")
-
-
-@app.get("/account", response_class=HTMLResponse)
-async def account_page():
-    return (TEMPLATE_DIR / "account.html").read_text(encoding="utf-8")
-
-
-# ── API 路由 ──
 
 @app.get("/api/review")
 async def api_review(date: str = Query(None)):
@@ -120,7 +124,6 @@ async def api_account(date: str = Query(None)):
             (d,),
         ).fetchone()
     if row:
-        import json
         return {
             "date": d, "total_asset": row[0], "available_cash": row[1],
             "position_value": row[2], "daily_pnl": row[3],
@@ -135,11 +138,9 @@ def _today_ymd():
     from datetime import date
     return date.today().strftime("%Y%m%d")
 
-
 def _today_iso():
     from datetime import date
     return date.today().isoformat()
-
 
 def _days_ago(n: int):
     from datetime import date, timedelta
