@@ -197,17 +197,11 @@ CREATE TABLE limit_up_history (
     sector TEXT,                -- 所属板块
     PRIMARY KEY (date, code)
 );
+```
 
--- 股票基础信息（定期更新）
-CREATE TABLE stock_info (
-    code TEXT PRIMARY KEY,
-    name TEXT,
-    market_cap REAL,            -- 总市值
-    float_cap REAL,             -- 流通市值
-    pe REAL,                    -- 市盈率
-    concepts TEXT,              -- 概念标签(JSON)
-    turnover REAL               -- 换手率
-);
+股票基础信息（市值/PE/换手率/量比）不持久化，点击时实时拉取：
+- **东财 API**：`push2.eastmoney.com/api/qt/stock/get` → 市值/流通/PE/换手率/量比
+- **概念标签**：同花顺热榜 API 已有 `concept_tag`
 ```
 
 ### 热榜快照
