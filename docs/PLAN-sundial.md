@@ -20,14 +20,26 @@
 |----|------|------|
 | Web 框架 | FastAPI | 与现有系统一致 |
 | 前端 | 单页 HTML + Plotly.js + htmx | 零前端构建 |
-| 个股行情 | mootdx (Level-2/逐笔/分钟K) + 腾讯财经 `qt.gtimg.cn` | 免费 |
-| 板块行情 | 东方财富 push2 公开 API | 免费，无需 Key |
+| 指数行情 + 成交额 | 腾讯财经 `qt.gtimg.cn` | 免费，无时段限制，周日可用 |
+| 涨停/跌停/炸板/连板 | 东方财富 `push2ex.eastmoney.com` 四个专题池 | 免费，**支持 date 参数查历史**，周日可用 |
+| 全市场实时行情 | 东方财富 `push2.eastmoney.com/api/qt/clist/get` | 仅交易日可用（实时快照，无 date 参数） |
+| 个股 K线 | AkShare `stock_zh_a_hist()`（东方财富源） / mootdx | AkShare 更稳定，mootdx 作为备选 |
+| 个股基础信息 | 东方财富 `push2/.../stock/get` | 交易日可用 |
+| 分时图 | 东方财富 `push2/.../trends2/get` | 交易日可用 |
 | 热榜 | 同花顺 `eq.10jqka.com.cn` | 免费 |
-| 股票基础信息 | 东方财富 `push2.eastmoney.com/api/qt/stock/get` | 免费 |
-| 分时图 | 东方财富 `push2/.../trends2/get` | 免费 |
+| 板块行情 | 东方财富板块 API `stock_board_*_spot_em()` | 交易日可用 |
 | 时序存储 | Parquet | 日线K线本地缓存 |
-| 元数据存储 | SQLite | 涨停/热榜/情绪/竞价/账户等结构化快照 |
+| 元数据存储 | SQLite | 涨停/热榜/情绪/账户等结构化快照 |
 | 部署 | systemd + 公网开关 | 同现有模式 |
+
+### 东方财富两套域名（关键区别）
+
+| 域名 | 典型接口 | date 参数 | 周日 | 用途 |
+|------|----------|:---:|:---:|------|
+| `push2ex.eastmoney.com` | getTopicZTPool / getTopicQSPool / getTopicZBPool / getTopicDTPool / getYesterdayZTPool | ✅ | ✅ 通 | 涨停/跌停/炸板历史 |
+| `push2.eastmoney.com` | clist / stock/get / trends2 | ❌ | ❌ 挂 | 实时行情快照 |
+
+**核心策略：** 页面1（每日复盘）的涨停/跌停/炸板/连板天梯数据全部走 `push2ex`——有 date 参数可查任意交易日历史，周日也能跑。指数涨跌+成交额走腾讯财经。其余实时性强的数据（个股分时、大单、板块排行）交易日走 `push2`，非交易日降级处理。
 
 ### 东方财富 push2 公开 API
 
@@ -53,21 +65,67 @@ GET https://push2.eastmoney.com/api/qt/stock/get
 - `secid` 格式：`1.` 前缀=沪市, `0.`=深市，后面跟 6 位代码
 - `f57`=代码, `f58`=名称, `f100`=行业, `f116`=总市值, `f117`=流通市值, `f162`=市盈率, `f167`=换手率, `f168`=量比
 
-### 数据源可靠性验证（2026-05-25 周日）
+### 东方财富 push2ex 专题池 API（涨停/跌停/炸板）
+
+**四个核心接口，全部支持 `date` 参数查任意交易日历史，周日可用。**
+
+**① 涨停池：**
+```bash
+curl "https://push2ex.eastmoney.com/getTopicZTPool?\
+ut=7eea3edcaed734bea9cbfc24409ed989&\
+dpt=wz.ztzt&Pageindex=0&pagesize=10000&sort=fbt:asc&\
+date=20260522"
+```
+返回字段：代码 `c`、名称 `n`、最新价 `p`、涨跌幅 `zdp`、成交额 `amount`、流通市值 `ltsz`、总市值 `tsz`、换手率 `hs`、**连板数** `lbc`、首次封板时间 `fbt`、最后封板时间 `lbt`、封板资金 `fund`、**炸板次数** `zbc`、所属行业 `hybk`、涨停统计 `days`/`ct`
+
+**② 强势涨停池（60日新高 + 多次涨停）：**
+```bash
+curl "https://push2ex.eastmoney.com/getTopicQSPool?\
+ut=7eea3edcaed734bea9cbfc24409ed989&\
+dpt=wz.ztzt&Pageindex=0&pagesize=10000&sort=fbt:asc&\
+date=20260522"
+```
+额外返回：入选理由 `reason`、是否新高 `isNewHigh`、量比 `lb`
+
+**③ 炸板池：**
+```bash
+curl "https://push2ex.eastmoney.com/getTopicZBPool?...&date=20260522"
+```
+字段同上 + 首次封板时间 + 炸板次数
+
+**④ 跌停池：**
+```bash
+curl "https://push2ex.eastmoney.com/getTopicDTPool?...&date=20260522"
+```
+字段：代码/名称/最新价/涨跌幅/成交额/换手率/**封单资金**/**连续跌停**/开板次数/所属行业
+
+**⑤ 昨日涨停池（用于计算"昨日涨停今日表现"）：**
+```bash
+curl "https://push2ex.eastmoney.com/getYesterdayZTPool?...&date=20260522"
+```
+结合今日行情计算晋级率、平均收益等。
+
+### 数据源可靠性验证（2026-05-24 周日）
 
 | 接口 | 测试结果 | 说明 |
 |------|----------|------|
 | 腾讯财经 `qt.gtimg.cn` | ✅ 可用 | 指数行情+成交额始终可用，无时段限制 |
-| 东方财富 `clist`（全市场列表）| ⚠️ 周日无响应 | 疑似交易日才响应，需周一验证 |
-| 东方财富 `stock/get`（个股信息）| ⚠️ 周日无响应 | 同上 |
-| 东方财富 `trends2`（分时）| ⚠️ 不稳定 | 首次可用，连续请求后限流 |
-| mootdx（通达信 Level-2）| ✅ 可用 | 不依赖 HTTP API，TCP 直连，始终在线 |
+| `push2ex` 涨停/跌停/炸板/强势池 | ✅ 可用 | 支持 `date` 参数，查任意交易日历史，周日通 |
+| 东方财富 `push2` clist（全市场行情）| ❌ 周日关闭 | 实时快照接口，无 date 参数，仅交易日可用 |
+| 东方财富 `push2` stock/get（个股信息）| ❌ 周日关闭 | 同上 |
+| 东方财富 `push2` trends2（分时）| ❌ 周日关闭 | 同上 |
+| AkShare `stock_zh_a_hist()`（日K线）| ✅ 可用 | 东方财富历史K线接口，周日可查 |
+| mootdx（通达信 Level-2）| ✅ 可用 | TCP 直连，始终在线，适合实时分时/逐笔 |
 
-**涨停/跌停数据采集风险：** 当前方案依赖东方财富 `clist` 接口批量获取全市场涨跌情况，再通过 `f3`（涨跌幅 ≥ 9.8% ≈ 涨停）推算涨停股列表。如果交易日 `clist` 也不可用或有限流，备选方案：
+**涨停/跌停数据采集方案（已确认）：** `push2ex` 四个专题池直接返回涨停股完整列表，包含连板数、封板时间、炸板次数、封板资金、所属行业等，**无需通过涨跌幅推算**。数据采集流程：
 
-1. **方案 A（主）**：`clist` 正常 → 批量拉取，通过涨跌幅判定涨停/跌停
-2. **方案 B（备）**：mootdx 逐只拉取全市场日线 `close`/`pre_close` → 计算 `change_pct` → 筛选涨停股。问题：3300+ 只全量拉取较重，建议缓存+增量更新
-3. **方案 C（兜底）**：同花顺热榜 API 自带涨停标记（仅热榜前 50），覆盖不全但零成本
+1. 调用 `getTopicZTPool` → 涨停池（连板数、首次/最后封板时间、炸板次数）
+2. 调用 `getTopicDTPool` → 跌停池（封单资金、连续跌停数）
+3. 调用 `getTopicZBPool` → 炸板池（计算炸板率 = 炸板数 / 涨停数）
+4. 调用 `getTopicQSPool` → 强势涨停池（60日新高、多次涨停，辅助龙头识别）
+5. 调用 `getYesterdayZTPool` + 今日行情 → 晋级率、平均收益
+
+**推荐方案：** 直接调 `push2ex` 裸接口（AkShare 的 `stock_zt_pool_*` 函数底层调的也是同一套 URL，且不需要安装 akshare 依赖）。
 
 **分时数据：**
 ```
@@ -262,16 +320,19 @@ GET https://push2.eastmoney.com/api/qt/stock/trends2/get
 ### SQLite（4 张表）
 
 ```sql
--- 涨停历史（每日增量）
+-- 涨停历史（每日增量，字段对齐 push2ex getTopicZTPool）
 CREATE TABLE limit_up_history (
     date TEXT, code TEXT, name TEXT,
-    board_count INTEGER,        -- 连板数
-    first_time TEXT,            -- 首次触板时间
-    last_time TEXT,             -- 最后封板时间
-    is_broken BOOLEAN,          -- 是否炸板
-    sector TEXT,                -- 所属板块
-    turnover REAL,              -- 换手率
-    volume_ratio REAL,          -- 量比
+    board_count INTEGER,            -- 连板数（lbc）
+    first_time TEXT,                -- 首次封板时间（fbt）
+    last_time TEXT,                 -- 最后封板时间（lbt）
+    broken_count INTEGER,           -- 炸板次数（zbc）
+    seal_amount REAL,               -- 封板资金（fund）
+    sector TEXT,                    -- 所属行业（hybk）
+    change_pct REAL,                -- 涨跌幅
+    turnover REAL,                  -- 换手率
+    amount REAL,                    -- 成交额
+    is_new_high BOOLEAN,            -- 是否60日新高（来自强势池）
     PRIMARY KEY (date, code)
 );
 
@@ -333,13 +394,15 @@ CREATE TABLE auction_alert (
 
 ### 不存储（实时拉取）
 
-| 数据 | 来源 |
-|------|------|
-| 股票基础信息（市值/PE/概念） | 东方财富 API + 同花顺概念 |
-| 1-min 分时 K 线 | mootdx `get_bars(frequency=7)` |
-| 大单逐笔成交 | mootdx `get_transaction_data()` |
-| 板块涨跌幅排行 | 东方财富板块 API |
-| 模拟账户实时持仓 | 同花顺模拟交易 API |
+| 数据 | 来源 | 可用时段 |
+|------|------|------|
+| 涨停/跌停/炸板历史 | `push2ex` 专题池 | 任意时间 |
+| 指数行情 + 成交额 | 腾讯财经 `qt.gtimg.cn` | 任意时间 |
+| 全市场实时行情 | 东方财富 `push2` clist | 仅交易日 |
+| 股票基础信息（市值/PE/概念）| 东方财富 `stock/get` + 同花顺概念 | 仅交易日 |
+| 1-min 分时 K 线 | mootdx `get_bars(frequency=7)` | 仅交易日 |
+| 大单逐笔成交 | mootdx `get_transaction_data()` | 仅交易日 |
+| 板块涨跌幅排行 | 东方财富板块 API | 仅交易日 |
 
 ### Parquet（时序）
 
@@ -359,10 +422,10 @@ sundial/
 │   ├── main.py                    # FastAPI 入口 :8200
 │   ├── config.py                  # 配置 + .env 加载
 │   ├── data/
-│   │   ├── fetcher.py             # mootdx K线/逐笔/分时
+│   │   ├── eastmoney_api.py       # push2ex 专题池（涨停/跌停/炸板/强势）
+│   │   ├── tencent_api.py         # 腾讯财经（指数 + 成交额）
 │   │   ├── ths_api.py             # 同花顺 API（热榜/概念）
-│   │   ├── eastmoney_api.py       # 东方财富 API（板块/基础信息）
-│   │   ├── trade_api.py           # 同花顺模拟交易 API
+│   │   ├── fetcher.py             # mootdx K线/逐笔/分时（交易日实时）
 │   │   └── db.py                  # SQLite 读写
 │   ├── services/
 │   │   ├── ladder.py              # 连板天梯计算
@@ -393,9 +456,9 @@ sundial/
 
 ### Phase 1: 骨架 + 数据层
 1. 项目初始化（pyproject.toml + FastAPI + SQLite）
-2. ⚠️ **数据源交易日验证**（周一确认：clist 全市场、stock/get、trends2 是否可用；如不可用则切换到备选方案 B/C）
-3. 数据源封装（mootdx / 同花顺 / 东方财富 / 腾讯财经）
-4. SQLite 建表 + 涨停数据采集
+2. `push2ex` 专题池封装（`eastmoney_api.py`：`fetch_limit_up_pool()` / `fetch_broken_pool()` / `fetch_limit_down_pool()`）
+3. 腾讯财经指数封装（`tencent_api.py`：上证/深证/创业板/科创50 + 成交额）
+4. SQLite 建表 + 盘后自动采集 `push2ex` → SQLite 快照
 5. 盘后快照脚本（cron 15:30）
 6. systemd 部署 + 公网开关
 
