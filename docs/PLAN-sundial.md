@@ -20,17 +20,23 @@
 |----|------|------|
 | Web 框架 | FastAPI | 与现有系统一致 |
 | 前端 | 单页 HTML + Plotly.js + htmx | 零前端构建 |
-| 指数行情 + 成交额 | 腾讯财经 `qt.gtimg.cn` | 免费，无时段限制，周日可用 |
-| 涨停/跌停/炸板/连板 | 东方财富 `push2ex.eastmoney.com` 四个专题池 | 免费，**支持 date 参数查历史**，周日可用 |
-| 全市场实时行情 | 东方财富 `push2.eastmoney.com/api/qt/clist/get` | 仅交易日可用（实时快照，无 date 参数） |
-| 个股 K线 | AkShare `stock_zh_a_hist()`（东方财富源） / mootdx | AkShare 更稳定，mootdx 作为备选 |
+| 指数 + 成交额 | **Baostock** `query_history_k_data_plus` | 支持 date 查历史，直接返回成交额，周日可用 |
+| 涨停/跌停/炸板/连板 | 东方财富 `push2ex.eastmoney.com` 五个专题池 | 支持 date 查历史，周日可用 |
+| 全市场实时行情 | 东方财富 `push2.eastmoney.com` clist | 仅交易日（无 date 参数） |
+| 个股 K线 | Baostock / AkShare `stock_zh_a_hist()` | Baostock 更轻量，AkShare 作为备选 |
 | 个股基础信息 | 东方财富 `push2/.../stock/get` | 交易日可用 |
 | 分时图 | 东方财富 `push2/.../trends2/get` | 交易日可用 |
-| 热榜 | 同花顺 `eq.10jqka.com.cn` | 免费 |
-| 板块行情 | 东方财富板块 API `stock_board_*_spot_em()` | 交易日可用 |
+| 热榜 | 同花顺 `eq.10jqka.com.cn` | **唯一需要 SQLite 存快照的**（无 date 参数） |
+| 板块行情 | 东方财富板块 API | 交易日可用 |
 | 时序存储 | Parquet | 日线K线本地缓存 |
-| 元数据存储 | SQLite | 涨停/热榜/情绪/账户等结构化快照 |
+| 元数据存储 | SQLite（2 张表） | 仅热榜快照 + 模拟账户快照 |
 | 部署 | systemd + 公网开关 | 同现有模式 |
+
+### 数据存储原则
+
+**不存历史，实时计算。** `push2ex` 和 Baostock 都支持 date 参数查任意交易日，用户翻历史日期时直接调 API 即可，不需要把数据存到 SQLite。
+
+唯一例外：同花顺热榜没有 date 参数，只能在盘中抓当前快照——所以需要 cron 定时抓取存入 SQLite。模拟账户是本地状态，也需要存。
 
 ### 东方财富两套域名（关键区别）
 
@@ -39,7 +45,7 @@
 | `push2ex.eastmoney.com` | getTopicZTPool / getTopicQSPool / getTopicZBPool / getTopicDTPool / getYesterdayZTPool | ✅ | ✅ 通 | 涨停/跌停/炸板历史 |
 | `push2.eastmoney.com` | clist / stock/get / trends2 | ❌ | ❌ 挂 | 实时行情快照 |
 
-**核心策略：** 页面1（每日复盘）的涨停/跌停/炸板/连板天梯数据全部走 `push2ex`——有 date 参数可查任意交易日历史，周日也能跑。指数涨跌+成交额走腾讯财经。其余实时性强的数据（个股分时、大单、板块排行）交易日走 `push2`，非交易日降级处理。
+**核心策略：** 页面1（每日复盘）全部实时计算——`push2ex` 拿涨停/跌停/炸板/连板天梯，Baostock 拿指数+成交额，前端选日期即调对应 API，不依赖 SQLite 历史数据。
 
 ### 东方财富 push2 公开 API
 
@@ -105,16 +111,36 @@ curl "https://push2ex.eastmoney.com/getYesterdayZTPool?...&date=20260522"
 ```
 结合今日行情计算晋级率、平均收益等。
 
+### Baostock 指数接口（替代腾讯财经）
+
+**支持 date 参数查历史，直接返回成交额，周日可用。**
+
+```python
+import baostock as bs
+bs.login()
+
+# 上证指数：sh.000001  /  深证成指：sz.399001
+# 创业板指：sz.399006  /  科创50：sh.000688
+rs = bs.query_history_k_data_plus(
+    'sh.000001',
+    'date,open,close,amount',
+    start_date='2026-05-19', end_date='2026-05-23'
+)
+```
+
+返回字段：`date`、`open`、`close`、`amount`（成交额，单位：元）
+
 ### 数据源可靠性验证（2026-05-24 周日）
 
 | 接口 | 测试结果 | 说明 |
 |------|----------|------|
-| 腾讯财经 `qt.gtimg.cn` | ✅ 可用 | 指数行情+成交额始终可用，无时段限制 |
+| **Baostock** 指数（上证/深证/创业板/科创50）| ✅ 可用 | 支持 date 查历史，直接返回成交额，周日通 |
+| 腾讯财经 `qt.gtimg.cn` | ✅ 可用 | 指数+成交额实时，但无 date 参数 |
 | `push2ex` 涨停/跌停/炸板/强势池 | ✅ 可用 | 支持 `date` 参数，查任意交易日历史，周日通 |
+| AkShare `stock_zh_a_hist()`（日K线）| ✅ 可用 | 东方财富历史K线接口，周日可查 |
 | 东方财富 `push2` clist（全市场行情）| ❌ 周日关闭 | 实时快照接口，无 date 参数，仅交易日可用 |
 | 东方财富 `push2` stock/get（个股信息）| ❌ 周日关闭 | 同上 |
 | 东方财富 `push2` trends2（分时）| ❌ 周日关闭 | 同上 |
-| AkShare `stock_zh_a_hist()`（日K线）| ✅ 可用 | 东方财富历史K线接口，周日可查 |
 | mootdx（通达信 Level-2）| ✅ 可用 | TCP 直连，始终在线，适合实时分时/逐笔 |
 
 **涨停/跌停数据采集方案（已确认）：** `push2ex` 四个专题池直接返回涨停股完整列表，包含连板数、封板时间、炸板次数、封板资金、所属行业等，**无需通过涨跌幅推算**。数据采集流程：
@@ -124,8 +150,6 @@ curl "https://push2ex.eastmoney.com/getYesterdayZTPool?...&date=20260522"
 3. 调用 `getTopicZBPool` → 炸板池（计算炸板率 = 炸板数 / 涨停数）
 4. 调用 `getTopicQSPool` → 强势涨停池（60日新高、多次涨停，辅助龙头识别）
 5. 调用 `getYesterdayZTPool` + 今日行情 → 晋级率、平均收益
-
-**推荐方案：** 直接调 `push2ex` 裸接口（AkShare 的 `stock_zt_pool_*` 函数底层调的也是同一套 URL，且不需要安装 akshare 依赖）。
 
 **分时数据：**
 ```
@@ -156,7 +180,7 @@ GET https://push2.eastmoney.com/api/qt/stock/trends2/get
 
 ### 页面 1：每日复盘
 
-**可选择日期回溯。** 所有数据从 SQLite 读取。
+**可选择日期回溯。** 数据实时从 API 计算，不依赖 SQLite 历史表。
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -191,13 +215,13 @@ GET https://push2.eastmoney.com/api/qt/stock/trends2/get
 
 ### 情绪仪表盘详情
 
-**指数行情：** 上证/深证/创业板/科创50 涨跌幅，数据来源腾讯财经 `qt.gtimg.cn`。
+**指数行情：** 上证/深证/创业板/科创50，数据来源 Baostock `query_history_k_data_plus`，选日期即查。
 
-**成交额：** 沪深两市合计，对比昨日算出放量/缩量百分比。
+**成交额：** Baostock 上证+深证成交额合计，对比昨日计算放量/缩量百分比。
 
-**涨停/跌停：** 从 `limit_up_history` 统计当日总数，对比昨日标注 ↑↓。
+**涨停/跌停/炸板：** `push2ex` 三个专题池实时查询，统计当日总数，对比昨日标注 ↑↓。
 
-**情绪温度计：** 综合加权计算（0°-100°）：
+**情绪温度计：** 综合加权计算（0°-100°），所有指标均可通过 API 实时计算：
 | 指标 | 权重 | 说明 |
 |------|------|------|
 | 涨停家数 | 30% | 越多越热 |
@@ -317,26 +341,11 @@ GET https://push2.eastmoney.com/api/qt/stock/trends2/get
 
 ## 四、数据存储设计
 
-### SQLite（4 张表）
+### SQLite（2 张表）
 
 ```sql
--- 涨停历史（每日增量，字段对齐 push2ex getTopicZTPool）
-CREATE TABLE limit_up_history (
-    date TEXT, code TEXT, name TEXT,
-    board_count INTEGER,            -- 连板数（lbc）
-    first_time TEXT,                -- 首次封板时间（fbt）
-    last_time TEXT,                 -- 最后封板时间（lbt）
-    broken_count INTEGER,           -- 炸板次数（zbc）
-    seal_amount REAL,               -- 封板资金（fund）
-    sector TEXT,                    -- 所属行业（hybk）
-    change_pct REAL,                -- 涨跌幅
-    turnover REAL,                  -- 换手率
-    amount REAL,                    -- 成交额
-    is_new_high BOOLEAN,            -- 是否60日新高（来自强势池）
-    PRIMARY KEY (date, code)
-);
-
--- 热榜快照（三时段：1130 / 1500 / 2100）
+-- 热榜快照（三时段：1130 / 1500 / 2100）— 唯一需要 cron 抓取存入的
+-- 同花顺热榜 API 无 date 参数，只能在盘中定时抓取当前快照
 CREATE TABLE hot_rank_snapshot (
     date TEXT, slot TEXT,
     rank INTEGER, code TEXT, name TEXT,
@@ -345,34 +354,6 @@ CREATE TABLE hot_rank_snapshot (
     is_limit_up BOOLEAN,
     change_pct REAL,
     PRIMARY KEY (date, slot, code)
-);
-
--- 每日情绪快照（页面1 仪表盘数据）
-CREATE TABLE daily_sentiment (
-    date TEXT PRIMARY KEY,
-    -- 指数
-    sh_close REAL, sh_change_pct REAL,
-    sz_close REAL, sz_change_pct REAL,
-    cyb_close REAL, cyb_change_pct REAL,     -- 创业板指 399006
-    kcb_close REAL, kcb_change_pct REAL,    -- 科创50 000688
-    -- 成交额
-    total_amount REAL,                       -- 沪深合计（亿）
-    amount_change_pct REAL,                  -- 对比昨日变化%
-    -- 涨停/跌停
-    limit_up_count INTEGER,
-    limit_down_count INTEGER,
-    broken_count INTEGER,
-    broken_rate REAL,
-    -- 晋级
-    promotion_rate REAL,
-    -- 昨日涨停表现
-    yday_avg_return REAL,
-    yday_cont_up INTEGER,
-    yday_red INTEGER,
-    yday_green INTEGER,
-    yday_limit_down INTEGER,
-    -- 情绪温度计
-    sentiment_temp REAL                      -- 0-100
 );
 
 -- 模拟账户每日快照
@@ -384,25 +365,20 @@ CREATE TABLE account_snapshot (
     daily_pnl REAL,
     holdings TEXT               -- JSON: [{code, name, qty, cost, price, pnl_pct}]
 );
-
--- 竞价异动（每日一条 JSON）
-CREATE TABLE auction_alert (
-    date TEXT PRIMARY KEY,
-    alerts TEXT                 -- JSON: [{time, code, name, type, detail}]
-);
 ```
 
-### 不存储（实时拉取）
+### 不存储（实时 API 计算）
 
-| 数据 | 来源 | 可用时段 |
+所有以下数据均通过 API 支持 date 参数查历史，无需存入 SQLite：
+
+| 数据 | 来源 | 说明 |
 |------|------|------|
-| 涨停/跌停/炸板历史 | `push2ex` 专题池 | 任意时间 |
-| 指数行情 + 成交额 | 腾讯财经 `qt.gtimg.cn` | 任意时间 |
-| 全市场实时行情 | 东方财富 `push2` clist | 仅交易日 |
-| 股票基础信息（市值/PE/概念）| 东方财富 `stock/get` + 同花顺概念 | 仅交易日 |
-| 1-min 分时 K 线 | mootdx `get_bars(frequency=7)` | 仅交易日 |
-| 大单逐笔成交 | mootdx `get_transaction_data()` | 仅交易日 |
-| 板块涨跌幅排行 | 东方财富板块 API | 仅交易日 |
+| 涨停池/跌停池/炸板池 | `push2ex` 专题池 | date 参数查任意交易日 |
+| 连板天梯 | `push2ex` 涨停池派生 | 按 `lbc`（连板数）分组即得 |
+| 指数行情 | Baostock `sh.000001` / `sz.399001` / `sz.399006` / `sh.000688` | date 参数，含成交额 |
+| 情绪温度计 | 上述 API 综合计算 | 所有子指标均可实时计算 |
+| 昨日涨停今日表现 | `push2ex` getYesterdayZTPool + Baostock 今日行情 | 两次 API 调用 |
+| 全市场实时行情 | 东方财富 `push2` clist | 仅交易日，无 date |
 
 ### Parquet（时序）
 
@@ -423,18 +399,16 @@ sundial/
 │   ├── config.py                  # 配置 + .env 加载
 │   ├── data/
 │   │   ├── eastmoney_api.py       # push2ex 专题池（涨停/跌停/炸板/强势）
-│   │   ├── tencent_api.py         # 腾讯财经（指数 + 成交额）
+│   │   ├── baostock_api.py        # Baostock（指数 + 成交额 + 日K线）
 │   │   ├── ths_api.py             # 同花顺 API（热榜/概念）
-│   │   ├── fetcher.py             # mootdx K线/逐笔/分时（交易日实时）
+│   │   ├── fetcher.py             # mootdx 分时/逐笔（交易日实时）
 │   │   └── db.py                  # SQLite 读写
 │   ├── services/
-│   │   ├── ladder.py              # 连板天梯计算
-│   │   ├── sentiment.py           # 情绪指标
+│   │   ├── ladder.py              # 连板天梯计算（push2ex 派生）
+│   │   ├── sentiment.py           # 情绪指标计算（push2ex + Baostock）
 │   │   ├── hot_rank.py            # 热榜采集 + 快照
 │   │   ├── teammate.py            # 找队友（相关性计算）
-│   │   ├── big_order.py           # 大单筛选
-│   │   ├── auction.py             # 竞价异动
-│   │   └── sector_flow.py         # 板块资金流向
+│   │   └── big_order.py           # 大单筛选
 │   └── dashboard/
 │       └── templates/
 │           ├── review.html         # 页面1: 每日复盘
@@ -455,12 +429,11 @@ sundial/
 ## 六、实施顺序
 
 ### Phase 1: 骨架 + 数据层
-1. 项目初始化（pyproject.toml + FastAPI + SQLite）
+1. 项目初始化（pyproject.toml + FastAPI + SQLite 2 张表）
 2. `push2ex` 专题池封装（`eastmoney_api.py`：`fetch_limit_up_pool()` / `fetch_broken_pool()` / `fetch_limit_down_pool()`）
-3. 腾讯财经指数封装（`tencent_api.py`：上证/深证/创业板/科创50 + 成交额）
-4. SQLite 建表 + 盘后自动采集 `push2ex` → SQLite 快照
-5. 盘后快照脚本（cron 15:30）
-6. systemd 部署 + 公网开关
+3. Baostock 指数封装（`baostock_api.py`：上证/深证/创业板/科创50 + 成交额）
+4. 同花顺热榜封装 + cron 定时抓取 → SQLite（三时段：11:30 / 15:00 / 21:00）
+5. systemd 部署 + 公网开关
 
 ### Phase 2: 页面1 每日复盘
 6. 情绪仪表盘
