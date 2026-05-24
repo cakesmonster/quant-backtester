@@ -5,11 +5,26 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/root/.hermes/projects/quant-backtester
-ExecStart=/usr/local/lib/hermes-agent/venv/bin/uvicorn quant_backtester.main:app --host 0.0.0.0 --port 8100 --log-level info
+
+# ══ 部署前必须修改以下两行 ══
+# WorkingDirectory=  改成你 clone 的路径
+# ExecStart=          改成你 venv 里的 uvicorn 路径
+#
+# 示例 (Linux 服务器):
+#   which uvicorn  →  /home/xxx/venv/bin/uvicorn
+#   pwd            →  /home/xxx/quant-backtester
+#
+# 示例 (若用 quant-backtester CLI):
+#   ExecStart=/home/xxx/venv/bin/quant-backtester
+#
+WorkingDirectory=/home/you/quant-backtester
+ExecStart=/home/you/venv/bin/uvicorn quant_backtester.main:app --host 0.0.0.0 --port 8100 --log-level info
+
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+
+# 资源限制（按你的机器调整）
 MemoryMax=800M
 CPUQuota=80%
 

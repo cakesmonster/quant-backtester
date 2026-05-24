@@ -85,14 +85,19 @@ quant-backtester/
 ### Linux 服务器（systemd，开机自启）
 
 ```bash
-# 1. 安装服务文件
+# 1. 先修改 deploy/quant-backtester.service 里的两行路径：
+#    WorkingDirectory=  改成你 clone 的目录
+#    ExecStart=          改成你 venv 里的 uvicorn 路径
+#    (which uvicorn 可查)
+
+# 2. 安装服务
 sudo cp deploy/quant-backtester.service /etc/systemd/system/
 sudo systemctl daemon-reload
 
-# 2. 启动 + 开机自启
+# 3. 启动 + 开机自启
 sudo systemctl enable --now quant-backtester
 
-# 3. 验证
+# 4. 验证
 curl http://localhost:8100/api/health
 # → {"status":"ok","version":"0.2.0"}
 ```
