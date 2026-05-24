@@ -1,5 +1,5 @@
 """
-均线趋势策略 — 日线 MA5>MA20 买入（周线多头确认），RSI>80 或跌破 MA5 卖出。
+均线趋势策略 — 日线 MA5 上穿 MA10 买入（周线多头确认），RSI>80 或跌破 MA5 卖出。
 """
 
 from quant_backtester.strategies.base import BaseStrategy, Order
@@ -8,7 +8,7 @@ from quant_backtester.engine.indicators import add_mas, rsi
 
 class MATrend(BaseStrategy):
     name = "均线趋势"
-    description = "日线 MA5>MA20 买入(周线多头确认)，RSI>80 或跌破 MA5 卖出"
+    description = "日线 MA5 上穿 MA10 买入(周线多头确认)，RSI>80 或跌破 MA5 卖出"
 
     def init(self):
         # 日线均线
@@ -25,20 +25,20 @@ class MATrend(BaseStrategy):
             return []
 
         ma5 = self.daily["ma5"].iloc[i]
-        ma20 = self.daily["ma20"].iloc[i]
+        ma10 = self.daily["ma10"].iloc[i]
         prev_ma5 = self.daily["ma5"].iloc[i - 1]
-        prev_ma20 = self.daily["ma20"].iloc[i - 1]
+        prev_ma10 = self.daily["ma10"].iloc[i - 1]
 
         close = self.daily["close"].iloc[i]
         rsi_val = self.daily["rsi"].iloc[i]
 
         # 周线趋势确认（避免逆势做多）
         w_ma5 = self.weekly["ma5"].iloc[i]
-        w_ma20 = self.weekly["ma20"].iloc[i]
+        w_ma10 = self.weekly["ma10"].iloc[i]
 
-        # 买入：日线金叉 + 周线多头排列
-        if ma5 > ma20 and prev_ma5 <= prev_ma20 and w_ma5 > w_ma20:
-            return [Order.buy(pct=1.0, reason="MA5上穿MA20(日)+周线多头")]
+        # 买入：日线 MA5 上穿 MA10 + 周线多头排列
+        if ma5 > ma10 and prev_ma5 <= prev_ma10 and w_ma5 > w_ma10:
+            return [Order.buy(pct=1.0, reason="MA5上穿MA10(日)+周线多头")]
 
         # 卖出：RSI > 80（超买）或 跌破 MA5
         if rsi_val > 80:
