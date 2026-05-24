@@ -34,10 +34,10 @@
         </div>
 
         <div class="topbar-right" aria-label="市场状态与快捷区">
-          <div class="market-state">
+          <div class="market-state" id="market-state">
             <span class="pulse" aria-hidden="true"></span>
-            <span>交易中</span>
-            <span class="mono">15:00 CST</span>
+            <span id="market-status-text">交易中</span>
+            <span class="mono" id="market-clock">--:--:-- CST</span>
           </div>
           <div class="search-pill" aria-hidden="true">
             <span>搜索代码 / 板块 / 公告</span>
@@ -88,6 +88,24 @@
       </div>
     </div>
 
+    <script>
+    // 实时时钟 + 交易状态
+    (function tick() {
+      var now = new Date();
+      var h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
+      var timeStr = [h,m,s].map(function(x){return (x<10?'0':'')+x}).join(':') + ' CST';
+      var el = document.getElementById('market-clock');
+      if (el) el.textContent = timeStr;
+      var st = document.getElementById('market-status-text');
+      if (st) {
+        var weekday = now.getDay();
+        var isTrade = weekday >= 1 && weekday <= 5;
+        var isOpen = isTrade && ((h===9 && m>=30) || (h===10) || (h===11 && m<=30) || (h===13));
+        st.textContent = !isTrade ? '休市' : isOpen ? '交易中' : (h<9||(h===9&&m<30)) ? '待开盘' : '已收盘';
+      }
+      setTimeout(tick, 1000);
+    })();
+    </script>
     <script src="/static/js/app.js"></script>
   </body>
 </html>

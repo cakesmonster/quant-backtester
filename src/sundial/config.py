@@ -11,8 +11,8 @@ DATA_DIR = Path(os.environ.get("SUNDIAL_DATA_DIR", PROJECT_ROOT / "data"))
 DB_PATH = DATA_DIR / "sundial.db"
 
 # 服务配置
-HOST = os.environ.get("SUNDIAL_HOST", "127.0.0.1")
-PORT = int(os.environ.get("SUNDIAL_PORT", "8200"))
+HOST = os.environ.get("SUNDIAL_HOST", "0.0.0.0")
+PORT = int(os.environ.get("SUNDIAL_PORT", "8100"))
 
 # 同花顺热榜 API
 THS_HOT_RANK_URL = "https://eq.10jqka.com.cn/open/api/hot_list/v1/hot_stock/a/hour/data.txt"

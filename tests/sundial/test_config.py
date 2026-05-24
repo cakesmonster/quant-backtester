@@ -9,11 +9,11 @@ class TestConfigDefaults:
 
     def test_host_default(self):
         from sundial.config import HOST
-        assert HOST == "127.0.0.1"
+        assert HOST == "0.0.0.0"
 
     def test_port_default(self):
         from sundial.config import PORT
-        assert PORT == 8200
+        assert PORT == 8100
 
     def test_db_path_in_data_dir(self):
         from sundial.config import DB_PATH
