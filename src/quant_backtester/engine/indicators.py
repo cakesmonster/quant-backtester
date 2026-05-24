@@ -80,8 +80,11 @@ def rsi(close: pd.Series, n: int = 14) -> pd.Series:
     avg_gain = gain.ewm(alpha=1.0 / n, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1.0 / n, adjust=False).mean()
 
+    # avg_loss=0 → RSI=100 (纯上涨，无下跌日)
     rs = avg_gain / avg_loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
+    result = 100 - (100 / (1 + rs))
+    result[avg_loss == 0] = 100.0
+    return result
 
 
 # ── 布林带 ──────────────────────────────────────────
