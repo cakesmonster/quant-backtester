@@ -58,7 +58,7 @@ def _write_env(path: str, existing: dict, private: str, public: str) -> None:
 PRIVATE_KEY, PUBLIC_KEY = _ensure_keys()
 
 # ── 服务 ─────────────────────────────────────────
-FASTAPI_HOST = "0.0.0.0"
+FASTAPI_HOST = "127.0.0.1"
 FASTAPI_PORT = 8100
 
 # ── 通达信 ───────────────────────────────────────

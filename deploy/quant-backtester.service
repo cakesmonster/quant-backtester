@@ -18,7 +18,7 @@ User=root
 #   ExecStart=/home/xxx/venv/bin/quant-backtester
 #
 WorkingDirectory=/home/you/quant-backtester
-ExecStart=/home/you/venv/bin/uvicorn quant_backtester.main:app --host 0.0.0.0 --port 8100 --log-level info
+ExecStart=/home/you/venv/bin/uvicorn quant_backtester.main:app --host 127.0.0.1 --port 8100 --log-level info
 
 Restart=always
 RestartSec=5
