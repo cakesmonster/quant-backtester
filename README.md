@@ -245,6 +245,44 @@ class MyStrategy(BaseStrategy):
 - **buy 已有持仓 → 跳过** — 单股模式不重复买入
 - **Order 支持 pct** — 买入时 `pct` = 仓位比例，卖出时 `pct` = 卖出比例
 
+### 均线使用示例
+
+`init()` 里一行即可为日/周/月线附加均线列，`next()` 里直接取值：
+
+```python
+class MATrendStrategy(BaseStrategy):
+    name = "均线趋势"
+    description = "日线 MA5>MA20 买入，MA5<MA20 卖出"
+
+    def init(self):
+        # 日线均线：ma5, ma10, ma20, ma60
+        add_mas(self.daily)
+        # 周线均线：ma5, ma10, ma20
+        add_mas(self.weekly, periods=[5, 10, 20])
+        # 月线均线：ma3, ma5, ma10
+        add_mas(self.monthly, periods=[3, 5, 10])
+
+    def next(self, i):
+        if i < 60:
+            return []
+        # 直接取列：self.daily["ma5"].iloc[i]
+        ma5 = self.daily["ma5"].iloc[i]
+        ma20 = self.daily["ma20"].iloc[i]
+        if ma5 > ma20 and self.daily["ma5"].iloc[i-1] <= self.daily["ma20"].iloc[i-1]:
+            return [Order.buy(pct=1.0, reason="MA5上穿MA20")]
+        if ma5 < ma20:
+            return [Order.sell(pct=1.0, reason="MA5下穿MA20")]
+        return []
+```
+
+> **`sma_multi` / `ema_multi`** 返回独立 DataFrame，适合多周期对比：
+> ```python
+> self.d_mas = sma_multi(self.daily["close"], [5,10,20,60])
+> self.w_mas = sma_multi(self.weekly["close"], [5,10,20])
+> self.m_mas = sma_multi(self.monthly["close"], [3,5,10])
+> # 取值: self.d_mas["ma60"].iloc[i]
+> ```
+
 ### 内置指标工具
 
 在 `init()` 里调用，存为成员变量：
