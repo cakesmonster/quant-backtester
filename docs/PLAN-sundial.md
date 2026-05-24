@@ -20,10 +20,47 @@
 |----|------|------|
 | Web 框架 | FastAPI | 与现有系统一致 |
 | 前端 | 单页 HTML + Plotly.js + htmx | 零前端构建 |
-| 数据源 | mootdx (Level-2/逐笔/分钟K) + 同花顺 API + 东方财富 API | 免费 |
-| 时序存储 | Parquet | 日线K线本地缓存（3300只 × 10年） |
+| 个股行情 | mootdx (Level-2/逐笔/分钟K) + 腾讯财经 `qt.gtimg.cn` | 免费 |
+| 板块行情 | 东方财富 push2 公开 API | 免费，无需 Key |
+| 热榜 | 同花顺 `eq.10jqka.com.cn` | 免费 |
+| 股票基础信息 | 东方财富 `push2.eastmoney.com/api/qt/stock/get` | 免费 |
+| 分时图 | 东方财富 `push2/.../trends2/get` | 免费 |
+| 时序存储 | Parquet | 日线K线本地缓存 |
 | 元数据存储 | SQLite | 涨停/热榜/情绪/竞价/账户等结构化快照 |
 | 部署 | systemd + 公网开关 | 同现有模式 |
+
+### 东方财富 push2 公开 API
+
+无需 API Key，直接 HTTP GET。
+
+**行业板块行情（按涨跌幅排序）：**
+```
+GET https://push2.eastmoney.com/api/qt/clist/get
+  ?pn=1&pz=50&po=1&np=1&fltt=2&invt=2&fid=f3
+  &fs=m:90+t:2
+  &fields=f2,f3,f4,f12,f14
+```
+- `fs=m:90+t:2` = 行业板块，`t:3` = 概念板块
+- `fid=f3` = 按涨跌幅排序（`f3`=涨跌幅, `f2`=最新价, `f4`=涨跌额, `f12`=板块代码, `f14`=板块名称）
+- 单个板块的成分股：`fs=b:BKxxxx+f:!50` 过滤指定板块代码
+
+**个股基础信息：**
+```
+GET https://push2.eastmoney.com/api/qt/stock/get
+  ?secid=1.600519
+  &fields=f57,f58,f100,f116,f117,f162,f167,f168
+```
+- `secid` 格式：`1.` 前缀=沪市, `0.`=深市，后面跟 6 位代码
+- `f57`=代码, `f58`=名称, `f100`=行业, `f116`=总市值, `f117`=流通市值, `f162`=市盈率, `f167`=换手率, `f168`=量比
+
+**分时数据：**
+```
+GET https://push2.eastmoney.com/api/qt/stock/trends2/get
+  ?secid=1.600519&ndays=1&iscr=1
+  &fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13
+  &fields2=f51,f52,f53,f54,f55,f56,f57,f58
+```
+- 返回当日 1 分钟分时数据（约 240 条），字段：时间/开盘/现价/最高/最低/成交量/成交额/均价
 
 ---
 
