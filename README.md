@@ -70,7 +70,9 @@ quant-backtester/
 │   │   └── weekly_daily_kdj.py #   周K+日K KDJ 联动
 │   └── dashboard/
 │       └── templates/index.html # 看板页面
-├── tests/                      # 单元测试 (P4)
+├── tests/                      # 单元测试 (180 个)
+├── deploy/                     # 部署文件
+│   └── quant-backtester.service # systemd 服务
 └── data/cache/                 # K线缓存 (gitignored)
     ├── 600578.parquet           #   每只股票一个文件
     └── stock_pool.json          #   股票池缓存
@@ -78,42 +80,50 @@ quant-backtester/
 
 ---
 
-## 安装 & 启动
+## 部署
 
-### 环境要求
+### Linux 服务器（systemd，开机自启）
 
-- Python >= 3.11
-- [uv](https://docs.astral.sh/uv/) (推荐) 或 pip
+```bash
+# 1. 安装服务文件
+sudo cp deploy/quant-backtester.service /etc/systemd/system/
+sudo systemctl daemon-reload
 
-### 安装
+# 2. 启动 + 开机自启
+sudo systemctl enable --now quant-backtester
+
+# 3. 验证
+curl http://localhost:8100/api/health
+# → {"status":"ok","version":"0.2.0"}
+```
+
+**管理命令：**
+
+```bash
+systemctl status quant-backtester    # 查看状态
+systemctl restart quant-backtester   # 重启
+journalctl -u quant-backtester -f    # 实时日志
+```
+
+**资源限制：** `MemoryMax=800M` `CPUQuota=80%`，防止回测打满 CPU/内存影响其他服务。
+
+### macOS 本地（直接运行）
 
 ```bash
 cd /root/.hermes/projects/quant-backtester
 
-# uv (推荐)
+# 安装依赖
 uv pip install -e .
 
-# 含测试依赖
-uv pip install -e ".[dev]"
-
-# pip 也支持
-pip install -e .
+# 启动（三种方式任选）
+quant-backtester                                          # CLI 入口
+uvicorn quant_backtester.main:app --host 127.0.0.1 --port 8100   # uvicorn
+python3 -m uvicorn quant_backtester.main:app --host 127.0.0.1 --port 8100
 ```
 
-### 启动
+打开浏览器 `http://localhost:8100` 即可看到看板。
 
-```bash
-# 方式一: 直接运行
-quant-backtester
-
-# 方式二: uvicorn
-uvicorn quant_backtester.main:app --host 0.0.0.0 --port 8100
-
-# 方式三: python
-python3 -m uvicorn quant_backtester.main:app --host 0.0.0.0 --port 8100
-```
-
-打开浏览器 `http://服务器IP:8100` 即可看到看板。
+> **macOS 不装 systemd**，直接用上述命令启动。关终端即停止，适合本地开发调试。
 
 ---
 
