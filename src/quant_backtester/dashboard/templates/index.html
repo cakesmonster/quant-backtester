@@ -40,7 +40,11 @@
 <div class="controls">
   <div class="field">
     <label>策略</label>
-    <select id="strategy"><option>加载中...</option></select>
+    <select id="strategy" onchange="showStrategyDesc()"><option>加载中...</option></select>
+  </div>
+  <div class="field" style="flex:1;min-width:200px" id="descField" hidden>
+    <label>策略说明</label>
+    <span id="strategyDesc" style="font-size:12px;color:#8b949e;line-height:1.5"></span>
   </div>
   <div class="field">
     <label>股票数</label>
@@ -74,16 +78,29 @@
 
 <script>
 const API = '';
+let _strategyDetails = {};
 
 async function loadStrategies() {
   const resp = await fetch(API + '/api/strategies');
   const data = await resp.json();
+  _strategyDetails = data.details || {};
   const sel = document.getElementById('strategy');
-  sel.innerHTML = data.strategies.map(s => {
-    const d = data.details[s];
-    return `<option value="${s}">${s} — ${d ? d.description : ''}</option>`;
-  }).join('');
+  sel.innerHTML = data.strategies.map(s => `<option value="${s}">${s}</option>`).join('');
   document.getElementById('runBtn').disabled = false;
+  showStrategyDesc();
+}
+
+function showStrategyDesc() {
+  const sel = document.getElementById('strategy');
+  const name = sel.value;
+  const field = document.getElementById('descField');
+  const span = document.getElementById('strategyDesc');
+  if (name && _strategyDetails[name] && _strategyDetails[name].description) {
+    span.textContent = _strategyDetails[name].description;
+    field.hidden = false;
+  } else {
+    field.hidden = true;
+  }
 }
 
 async function reloadStrategies() {
