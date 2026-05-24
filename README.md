@@ -34,9 +34,8 @@ quant-backtester            # 启动 → http://localhost:8100
               ┌────────────┐              └────────────────┘
               │  策略插件   │
               │  base.py   │
-              │  macd_*.py │
-              │  kdj_*.py  │
-              │  (你的策略) │
+              │  6 个内置  │
+              │  策略      │
               └────────────┘
 ```
 
@@ -67,16 +66,33 @@ quant-backtester/
 │   │   ├── macd_cross.py       #   MACD 金叉死叉
 │   │   ├── macd_divergence.py  #   MACD 顶底背离
 │   │   ├── kdj_cross.py        #   KDJ 金叉死叉 + 超买
-│   │   └── weekly_daily_kdj.py #   周K+日K KDJ 联动
+│   │   ├── weekly_daily_kdj.py #   周K+日K KDJ 联动
+│   │   ├── ma_trend.py         #   均线趋势 (MA5/MA10 + RSI + 周线)
+│   │   └── ma_long_alignment.py #  MA多头趋势 (四线排列+上移)
 │   └── dashboard/
 │       └── templates/index.html # 看板页面
-├── tests/                      # 单元测试 (180 个)
+├── tests/                      # 单元测试 (186 个)
+├── scripts/                    # 工具脚本
+│   └── toggle-public.sh        #   公网开关
 ├── deploy/                     # 部署文件
 │   └── quant-backtester.service # systemd 服务
 └── data/cache/                 # K线缓存 (gitignored)
     ├── 600578.parquet           #   每只股票一个文件
     └── stock_pool.json          #   股票池缓存
 ```
+
+---
+
+## 内置策略
+
+| 策略 | 买入 | 卖出 |
+|------|------|------|
+| KDJ金叉死叉 | 日线KDJ金叉 | 死叉 / J>100 / K>80 |
+| MACD金叉死叉 | 日线MACD金叉 | 死叉 |
+| MACD顶底背离 | 日线MACD底背离 | 顶背离 |
+| 周线+日线KDJ联动 | 周K金叉区间内日K金叉 | 日K死叉/J>100/K>80 / 周K死叉强制清仓 |
+| 均线趋势 | 日线MA5上穿MA10 + 周线多头确认 | RSI>80 或 跌破MA5 |
+| MA多头趋势 | MA5>10>20>60趋势向上 + MA5上穿MA10 | 跌破MA5 |
 
 ---
 
@@ -110,12 +126,20 @@ systemctl restart quant-backtester   # 重启
 journalctl -u quant-backtester -f    # 实时日志
 ```
 
+**公网开关** — 默认 127.0.0.1（仅本机），需要远程访问时切换：
+
+```bash
+bash scripts/toggle-public.sh on     # 开放 0.0.0.0
+bash scripts/toggle-public.sh off    # 关闭 127.0.0.1
+bash scripts/toggle-public.sh        # 切换当前状态
+```
+
 **资源限制：** `MemoryMax=800M` `CPUQuota=80%`，防止回测打满 CPU/内存影响其他服务。
 
 ### macOS 本地（直接运行）
 
 ```bash
-cd /root/.hermes/projects/quant-backtester
+cd /path/to/quant-backtester
 
 # 安装依赖
 uv pip install -e .
@@ -135,13 +159,14 @@ python3 -m uvicorn quant_backtester.main:app --host 127.0.0.1 --port 8100
 ## 看板使用
 
 1. 打开 `http://IP:8100`
-2. 下拉列表选择策略（自动发现 `strategies/` 下所有策略）
+2. 下拉列表选择策略（选中后右侧展示策略说明）
 3. 设置参数：股票数(1-100)、窗口天数(60-500)、每只次数(1-10)、资金
 4. 点击 **▶ 开始回测**
 5. 等待完成（3只×1次 ≈ 1秒），查看结果：
    - **收益曲线** — 每个任务的权益曲线叠加（Plotly 交互图）
    - **指标卡片** — 平均收益、中位数、最佳/最差、夏普、回撤、胜率、交易次数
    - **分股票明细表** — 每只股票每个窗口的详细指标
+6. 新增策略 `.py` 后点 **🔄 刷新策略**，无需重启服务
 
 ---
 
@@ -203,35 +228,35 @@ from quant_backtester.engine.indicators import sma, golden_cross, dead_cross
 
 class MyStrategy(BaseStrategy):
     name = "我的策略"              # 显示在看板下拉列表
-    description = "5日线上穿20日线买入，下穿卖出"
+    description = "日线MA5上穿MA10买入，跌破MA5卖出"
 
     def init(self):
         """回测前调用一次。在此预计算指标。"""
         close = self.daily["close"]
         self.ma5 = sma(close, 5)
-        self.ma20 = sma(close, 20)
+        self.ma10 = sma(close, 10)
 
     def next(self, i: int) -> list[Order]:
         """每天调用一次。i=当前索引。返回交易指令列表。"""
         if i < 20:
             return []
 
-        if self.ma5.iloc[i] > self.ma20.iloc[i] and self.ma5.iloc[i-1] <= self.ma20.iloc[i-1]:
-            return [Order.buy(pct=1.0, reason="5日线上穿20日线")]
+        if self.ma5.iloc[i] > self.ma10.iloc[i] and self.ma5.iloc[i-1] <= self.ma10.iloc[i-1]:
+            return [Order.buy(pct=1.0, reason="MA5上穿MA10")]
 
-        if self.ma5.iloc[i] < self.ma20.iloc[i] and self.ma5.iloc[i-1] >= self.ma20.iloc[i-1]:
-            return [Order.sell(pct=1.0, reason="5日线下穿20日线")]
+        if self.daily["close"].iloc[i] < self.ma5.iloc[i]:
+            return [Order.sell(pct=1.0, reason="跌破MA5")]
 
         return []
 ```
 
-**刷新看板页面** → 下拉列表自动出现"我的策略" → 选中即可回测。
+**刷新看板页面** → 点 🔄 刷新策略 → 下拉列表自动出现"我的策略" → 选中即可回测。
 
-> 💡 **热加载**：写完策略 `.py` 后无需重启服务，执行一次：
+> 💡 **热加载**：写完策略 `.py` 后无需重启服务，点页面上的 🔄 刷新策略按钮即可，或手动调 API：
 > ```bash
 > curl -X POST http://localhost:8100/api/reload-strategies
 > ```
-> 返回 `{"added": ["我的策略"], ...}` 即加载成功，刷新页面即可看到。
+> 返回 `{"added": ["我的策略"], ...}` 即加载成功。
 
 ### 策略能用的数据
 
@@ -257,13 +282,17 @@ class MyStrategy(BaseStrategy):
 `init()` 里一行即可为日/周/月线附加均线列，`next()` 里直接取值：
 
 ```python
+from quant_backtester.engine.indicators import add_mas, rsi
+
 class MATrendStrategy(BaseStrategy):
     name = "均线趋势"
-    description = "日线 MA5>MA20 买入，MA5<MA20 卖出"
+    description = "日线 MA5 上穿 MA10 买入(周线多头确认)，RSI>80 或跌破 MA5 卖出"
 
     def init(self):
         # 日线均线：ma5, ma10, ma20, ma60
         add_mas(self.daily)
+        # 日线 RSI
+        self.daily["rsi"] = rsi(self.daily["close"], n=14)
         # 周线均线：ma5, ma10, ma20
         add_mas(self.weekly, periods=[5, 10, 20])
         # 月线均线：ma3, ma5, ma10
@@ -272,13 +301,22 @@ class MATrendStrategy(BaseStrategy):
     def next(self, i):
         if i < 60:
             return []
-        # 直接取列：self.daily["ma5"].iloc[i]
         ma5 = self.daily["ma5"].iloc[i]
-        ma20 = self.daily["ma20"].iloc[i]
-        if ma5 > ma20 and self.daily["ma5"].iloc[i-1] <= self.daily["ma20"].iloc[i-1]:
-            return [Order.buy(pct=1.0, reason="MA5上穿MA20")]
-        if ma5 < ma20:
-            return [Order.sell(pct=1.0, reason="MA5下穿MA20")]
+        ma10 = self.daily["ma10"].iloc[i]
+        prev_ma5 = self.daily["ma5"].iloc[i - 1]
+        prev_ma10 = self.daily["ma10"].iloc[i - 1]
+        w_ma5 = self.weekly["ma5"].iloc[i]
+        w_ma10 = self.weekly["ma10"].iloc[i]
+
+        # 买入：日线 MA5 上穿 MA10 + 周线多头确认
+        if ma5 > ma10 and prev_ma5 <= prev_ma10 and w_ma5 > w_ma10:
+            return [Order.buy(pct=1.0, reason="MA5上穿MA10(日)+周线多头")]
+
+        # 卖出：RSI 超买或跌破 MA5
+        if self.daily["rsi"].iloc[i] > 80:
+            return [Order.sell(pct=1.0, reason="RSI超买")]
+        if self.daily["close"].iloc[i] < ma5:
+            return [Order.sell(pct=1.0, reason="跌破MA5")]
         return []
 ```
 
@@ -340,7 +378,7 @@ class WeeklyFilterDaily(BaseStrategy):
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `FASTAPI_HOST` | `"0.0.0.0"` | 监听地址 |
+| `FASTAPI_HOST` | `"127.0.0.1"` | 监听地址（默认仅本机，公网用 toggle 脚本切换） |
 | `FASTAPI_PORT` | `8100` | 监听端口 |
 | `DAILY_BEGIN` | `"2015-01-01"` | 日线最早拉取日期 |
 | `EXCLUDE_PREFIXES` | `("688","8","900","301")` | 排除板块 |
@@ -370,8 +408,8 @@ data/cache/
 ## 测试
 
 ```bash
-# P4 阶段填充单元测试
 pytest tests/ -v
+# 186 passed
 ```
 
 ---
