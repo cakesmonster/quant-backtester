@@ -89,7 +89,7 @@ def api_reload_strategies():
     """热加载：重新扫描 strategies/ 目录，无需重启服务。"""
     global STRATEGIES
     before = set(STRATEGIES.keys())
-    STRATEGIES = discover_strategies()
+    STRATEGIES = discover_strategies(reload=True)
     after = set(STRATEGIES.keys())
     added = after - before
     removed = before - after

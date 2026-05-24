@@ -11,12 +11,27 @@ from typing import Type
 from quant_backtester.strategies.base import BaseStrategy
 
 
-def discover_strategies() -> dict[str, Type[BaseStrategy]]:
+def discover_strategies(reload: bool = False) -> dict[str, Type[BaseStrategy]]:
     """自动发现 strategies/ 目录下所有策略类。
+
+    Args:
+        reload: 如果 True，先清除 importlib 缓存再重新导入。
 
     Returns:
         {策略name: 策略类} 字典，如 {"MACD金叉死叉": MACDCross}
     """
+    import sys
+
+    if reload:
+        # 重载所有已缓存的 strategies 子模块
+        import quant_backtester.strategies as pkg
+        for key in list(sys.modules.keys()):
+            if key.startswith("quant_backtester.strategies."):
+                try:
+                    importlib.reload(sys.modules[key])
+                except Exception:
+                    pass
+
     import quant_backtester.strategies as pkg
 
     pkg_dir = os.path.dirname(pkg.__file__)

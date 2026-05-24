@@ -7,7 +7,7 @@ from quant_backtester.engine.indicators import add_mas
 
 
 class MALongAlignment(BaseStrategy):
-    name = "多头排列"
+    name = "MA多头趋势"
     description = "MA5>10>20>60趋势向上，MA5上穿MA10买入，跌破MA5卖出"
 
     def init(self):

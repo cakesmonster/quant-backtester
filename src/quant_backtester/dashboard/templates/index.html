@@ -79,7 +79,10 @@ async function loadStrategies() {
   const resp = await fetch(API + '/api/strategies');
   const data = await resp.json();
   const sel = document.getElementById('strategy');
-  sel.innerHTML = data.strategies.map(s => `<option value="${s}">${s}</option>`).join('');
+  sel.innerHTML = data.strategies.map(s => {
+    const d = data.details[s];
+    return `<option value="${s}">${s} — ${d ? d.description : ''}</option>`;
+  }).join('');
   document.getElementById('runBtn').disabled = false;
 }
 

@@ -21,7 +21,7 @@ class TestDiscoverStrategies:
         assert "MACD顶底背离" in strategies
         assert "周线+日线KDJ联动" in strategies
         assert "均线趋势" in strategies
-        assert "多头排列" in strategies
+        assert "MA多头趋势" in strategies
 
     def test_all_are_base_strategy_subclasses(self):
         strategies = discover_strategies()
