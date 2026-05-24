@@ -154,6 +154,7 @@ python3 -m uvicorn quant_backtester.main:app --host 127.0.0.1 --port 8100
 | `GET` | `/api/strategies` | 可用策略列表 + 描述 |
 | `GET` | `/api/stock-pool` | 股票池统计 |
 | `GET` | `/api/cache-stats` | K线缓存统计 |
+| `POST` | `/api/reload-strategies` | 热加载策略（新增 .py 后无需重启） |
 | `POST` | `/api/backtest` | 执行回测 |
 
 ### POST /api/backtest
@@ -225,6 +226,12 @@ class MyStrategy(BaseStrategy):
 ```
 
 **刷新看板页面** → 下拉列表自动出现"我的策略" → 选中即可回测。
+
+> 💡 **热加载**：写完策略 `.py` 后无需重启服务，执行一次：
+> ```bash
+> curl -X POST http://localhost:8100/api/reload-strategies
+> ```
+> 返回 `{"added": ["我的策略"], ...}` 即加载成功，刷新页面即可看到。
 
 ### 策略能用的数据
 

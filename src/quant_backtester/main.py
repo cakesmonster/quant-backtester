@@ -84,6 +84,24 @@ def api_cache_stats():
     return cache_stats()
 
 
+@app.post("/api/reload-strategies")
+def api_reload_strategies():
+    """热加载：重新扫描 strategies/ 目录，无需重启服务。"""
+    global STRATEGIES
+    before = set(STRATEGIES.keys())
+    STRATEGIES = discover_strategies()
+    after = set(STRATEGIES.keys())
+    added = after - before
+    removed = before - after
+    return {
+        "ok": True,
+        "total": len(STRATEGIES),
+        "added": sorted(added),
+        "removed": sorted(removed),
+        "strategies": sorted(STRATEGIES.keys()),
+    }
+
+
 @app.post("/api/backtest")
 def api_backtest(req: BacktestRequest):
     """执行回测并返回结果。"""
