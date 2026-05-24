@@ -129,6 +129,10 @@ def api_backtest(req: BacktestRequest):
 
 
 # ── CLI 入口 ──
-if __name__ == "__main__":
+def main():
     import uvicorn
-    uvicorn.run(app, host=FASTAPI_HOST, port=FASTAPI_PORT, log_level="info")
+    uvicorn.run("quant_backtester.main:app", host=FASTAPI_HOST, port=FASTAPI_PORT, log_level="info")
+
+
+if __name__ == "__main__":
+    main()
