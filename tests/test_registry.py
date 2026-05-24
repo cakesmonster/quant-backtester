@@ -15,12 +15,13 @@ from quant_backtester.strategies.weekly_daily_kdj import WeeklyDailyKDJ
 class TestDiscoverStrategies:
     def test_finds_all_strategies(self):
         strategies = discover_strategies()
-        assert len(strategies) >= 5  # 5 个策略（含新增均线趋势）
+        assert len(strategies) >= 6  # 6 个策略
         assert "MACD金叉死叉" in strategies
         assert "KDJ金叉死叉" in strategies
         assert "MACD顶底背离" in strategies
         assert "周线+日线KDJ联动" in strategies
         assert "均线趋势" in strategies
+        assert "多头排列" in strategies
 
     def test_all_are_base_strategy_subclasses(self):
         strategies = discover_strategies()
