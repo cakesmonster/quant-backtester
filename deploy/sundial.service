@@ -6,10 +6,10 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/root/.hermes/projects/sundial
-ExecStart=/usr/local/lib/hermes-agent/venv/bin/python3 -m uvicorn sundial.main:app --host 127.0.0.1 --port 8100
+ExecStart=/usr/local/lib/hermes-agent/venv/bin/python3 -m uvicorn sundial.main:app --host 0.0.0.0 --port 8100
 Restart=always
 RestartSec=5
-Environment=SUNDIAL_HOST=127.0.0.1
+Environment=SUNDIAL_HOST=0.0.0.0
 Environment=SUNDIAL_PORT=8100
 MemoryMax=600M
 CPUQuota=60%

@@ -1,10 +1,9 @@
-# 🔬 Quant Backtester
+# 日晷 Sundial — A股市场数据看板 + 量化回测引擎
 
-A股量化回测框架 — 通达信历史K线 + 自定义策略插件 + FastAPI 看板。
+**一体化 A 股看板**：每日复盘、热榜追踪、个股分析、策略回测、模拟账户，全部端口 8100。
 
-```
-uv pip install -e .         # 安装
-quant-backtester            # 启动 → http://localhost:8100
+```bash
+systemctl start sundial    # 启动 → http://localhost:8100
 ```
 
 ---
@@ -12,480 +11,329 @@ quant-backtester            # 启动 → http://localhost:8100
 ## 架构
 
 ```
-浏览器 (IP:8100)                    数据流
-    │                                 │
-    ▼                                 ▼
-┌──────────────┐              ┌──────────────┐
-│  看板 (HTML)  │── REST API ─▶│  FastAPI      │
-│  Plotly.js   │              │  main.py      │
-│  策略选择/    │              └──────┬───────┘
-│  收益曲线/    │                    │
-│  分股票明细   │     ┌──────────────┴──────────────┐
-└──────────────┘     │                             │
-                     ▼                             ▼
-              ┌────────────┐              ┌────────────────┐
-              │  回测引擎   │              │   数据层        │
-              │  backtest  │◀─────────────│                │
-              │  portfolio │              │  fetcher.py    │
-              │  metrics   │              │  (mootdx)      │
-              └─────┬──────┘              │  cache.py      │
-                    │                     │  (Parquet)     │
-                    ▼                     │  stock_pool.py │
-              ┌────────────┐              └────────────────┘
-              │  策略插件   │
-              │  base.py   │
-              │  6 个内置  │
-              │  策略      │
-              └────────────┘
+                    浏览器 (http://IP:8100)
+                           │
+                    ┌──────▼──────┐
+                    │   FastAPI   │  sundial.main:app
+                    │   :8100     │
+                    └──────┬──────┘
+           ┌───────────────┼───────────────┐
+           ▼               ▼               ▼
+    ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+    │  sundial     │ │ 回测引擎     │ │ 策略注册表   │
+    │  services/   │ │ engine/     │ │ strategies/ │
+    │  看板聚合     │ │ 逐日驱动     │ │ 6个内置策略  │
+    │  队友互相关   │ │ 指标计算     │ │ 热加载       │
+    └──────┬──────┘ └──────┬──────┘ └─────────────┘
+           │               │
+    ┌──────▼───────────────▼──────┐
+    │         数据层               │
+    │  mootdx   Baostock  AkShare │
+    │  同花顺热榜  东方财富 push2ex │
+    │  Sina 行情  Parquet 缓存     │
+    └─────────────────────────────┘
 ```
+
+回测引擎以**库**形式集成在 sundial 进程内（`src/quant_backtester/`），不再独立启动服务。所有功能通过 `/api/backtest/*` 端点访问。
 
 ---
 
 ## 项目结构
 
 ```
-quant-backtester/
-├── pyproject.toml              # 项目配置 + uv 依赖
-├── README.md
-├── docs/DESIGN.md              # 设计文档
-├── src/quant_backtester/
-│   ├── main.py                 # FastAPI 入口
-│   ├── config.py               # 全局配置
-│   ├── data/                   # 数据层
-│   │   ├── fetcher.py          #   mootdx 拉取日/周/月K
-│   │   ├── cache.py            #   Parquet 缓存 (增量更新)
-│   │   └── stock_pool.py       #   股票池 (3309只, 非ST/科创/北交/创业)
-│   ├── engine/                 # 回测引擎
-│   │   ├── backtest.py         #   主循环 (逐日驱动策略)
-│   │   ├── portfolio.py        #   虚拟账户 (现金/持仓/手续费/滑点)
-│   │   ├── metrics.py          #   指标计算 (夏普/回撤/胜率/盈亏比)
-│   │   └── indicators.py       #   技术指标 (MACD/KDJ/RSI/布林带/ATR)
-│   ├── strategies/             # 策略目录 (放这里自动发现)
-│   │   ├── base.py             #   策略基类 + Order 交易指令
-│   │   ├── registry.py         #   自动扫描发现
-│   │   ├── macd_cross.py       #   MACD 金叉死叉
-│   │   ├── macd_divergence.py  #   MACD 顶底背离
-│   │   ├── kdj_cross.py        #   KDJ 金叉死叉 + 超买
-│   │   ├── weekly_daily_kdj.py #   周K+日K KDJ 联动
-│   │   ├── ma_trend.py         #   均线趋势 (MA5/MA10 + RSI + 周线)
-│   │   └── ma_long_alignment.py #  MA多头趋势 (四线排列+上移)
-│   └── dashboard/
-│       └── templates/index.html # 看板页面
-├── tests/                      # 单元测试 (233 个)
+sundial/
+├── pyproject.toml              # 项目配置 + 依赖
+├── .env                        # 环境变量（API 密钥等）
+├── deploy/sundial.service      # systemd 服务
+├── src/
+│   ├── sundial/                # 日晷主应用
+│   │   ├── main.py             # FastAPI 入口（端口 8100）
+│   │   ├── config.py           # HOST/PORT 配置
+│   │   ├── db.py               # SQLite 管理
+│   │   ├── services/           # 看板聚合服务
+│   │   │   ├── dashboard.py    # t/api/dashboard（队友/热榜/复盘…）
+│   │   │   ├── sentiment.py   # 情绪仪表盘
+│   │   │   ├── ladder.py      # 连板天梯
+│   │   │   └── hot_rank.py    # 热榜查询
+│   │   ├── data/               # 数据源适配层
+│   │   │   ├── ths_api.py     # 同花顺热榜 + Sina 补涨跌幅
+│   │   │   ├── ths_trade_api.py # 同花顺模拟交易
+│   │   │   ├── eastmoney_api.py # 东方财富 push2ex
+│   │   │   └── baostock_api.py  # Baostock 指数
+│   │   └── dashboard/          # SPA 前端
+│   └── quant_backtester/       # 回测引擎（库）
+│       ├── engine/             # 回测核心
+│       ├── strategies/         # 策略插件（热加载）
+│       └── data/               # K线缓存
+├── tests/                      # 单元测试
 ├── scripts/                    # 工具脚本
-│   └── toggle-public.sh        #   公网开关
-├── deploy/                     # 部署文件
-│   └── quant-backtester.service # systemd 服务
-└── data/cache/                 # K线缓存 (gitignored)
-    ├── 600578.parquet           #   每只股票一个文件
-    └── stock_pool.json          #   股票池缓存
+└── data/cache/                 # K线缓存（gitignored）
 ```
 
 ---
 
-## 内置策略
+## 页面
 
-| 策略 | 买入 | 卖出 |
+| 页面 | 路由 | 功能 |
 |------|------|------|
-| KDJ金叉死叉 | 日线KDJ金叉 | 死叉 / J>100 / K>80 |
-| MACD金叉死叉 | 日线MACD金叉 | 死叉 |
-| MACD顶底背离 | 日线MACD底背离 | 顶背离 |
-| 周线+日线KDJ联动 | 周K金叉区间内日K金叉 | 日K死叉/J>100/K>80 / 周K死叉强制清仓 |
-| 均线趋势 | 日线MA5上穿MA10 + 周线多头确认 | RSI>80 或 跌破MA5 |
-| MA多头趋势 | MA5>10>20>60趋势向上 + MA5上穿MA10 | 跌破MA5 |
+| 每日复盘 | `/review` | 涨停/跌停/炸板情绪 + 连板天梯 |
+| 热榜 | `/hotrank` | 同花顺一小时热股榜（11:30 / 15:00 / 21:00） |
+| 个股分析 | `/stock` | 日K + 分时图 + 找队友（分时图互相关） |
+| 策略回测 | `/backtest` | 6个内置策略 + 自定义策略热加载 |
+| 模拟账户 | `/account` | 同花顺模拟盘资产/持仓 |
 
 ---
 
-## 部署
+## 数据源
 
-### Linux 服务器（systemd，开机自启）
-
-```bash
-# 1. 先修改 deploy/quant-backtester.service 里的两行路径：
-#    WorkingDirectory=  改成你 clone 的目录
-#    ExecStart=          改成你 venv 里的 uvicorn 路径
-#    (which uvicorn 可查)
-
-# 2. 安装服务
-sudo cp deploy/quant-backtester.service /etc/systemd/system/
-sudo systemctl daemon-reload
-
-# 3. 启动 + 开机自启
-sudo systemctl enable --now quant-backtester
-
-# 4. 验证
-curl http://localhost:8100/api/health
-# → {"status":"ok","version":"0.2.0"}
-```
-
-**管理命令：**
-
-```bash
-systemctl status quant-backtester    # 查看状态
-systemctl restart quant-backtester   # 重启
-journalctl -u quant-backtester -f    # 实时日志
-```
-
-**公网开关** — 默认 127.0.0.1（仅本机），需要远程访问时切换：
-
-```bash
-bash scripts/toggle-public.sh on     # 开放 0.0.0.0
-bash scripts/toggle-public.sh off    # 关闭 127.0.0.1
-bash scripts/toggle-public.sh        # 切换当前状态
-```
-
-**资源限制：** `MemoryMax=800M` `CPUQuota=80%`，防止回测打满 CPU/内存影响其他服务。
-
-### macOS 本地（直接运行）
-
-```bash
-cd /path/to/quant-backtester
-
-# 安装依赖
-uv pip install -e .
-
-# 启动（三种方式任选）
-quant-backtester                                          # CLI 入口
-uvicorn quant_backtester.main:app --host 127.0.0.1 --port 8100   # uvicorn
-python3 -m uvicorn quant_backtester.main:app --host 127.0.0.1 --port 8100
-```
-
-打开浏览器 `http://localhost:8100` 即可看到看板。
-
-> **macOS 不装 systemd**，直接用上述命令启动。关终端即停止，适合本地开发调试。
+| 数据 | 来源 | 说明 |
+|------|------|------|
+| 涨停/跌停/炸板 | 东方财富 push2ex | 支持历史 date 查询 |
+| 指数（沪/深/创） | Baostock | 含成交额 |
+| 科创50 | AkShare | 补 Baostock 缺口 |
+| 热榜排名 + 概念 | 同花顺 THS API | 一小时热股榜，APScheduler 每小时采集 |
+| 热榜涨跌幅 | Sina 行情 `hq.sinajs.cn` | THS 不含涨跌幅，批量补查 |
+| 个股日K | 通达信 mootdx | Parquet 缓存，与回测同源 |
+| 分时图 | 通达信 mootdx 1分钟K线 | `frequency=7, offset=240` |
+| 找队友 | 通达信 mootdx 1分钟K线 | 滑动窗口 Pearson r 互相关 |
+| 模拟交易 | 同花顺模拟炒股 API | 服务端撮合 |
 
 ---
 
-## 看板使用
+## 找队友（teammates）
 
-1. 打开 `http://IP:8100`
-2. 下拉列表选择策略（选中后右侧展示策略说明）
-3. 设置参数：股票数(1-100)、窗口天数(60-500)、每只次数(1-10)、资金
-4. 点击 **▶ 开始回测**
-5. 等待完成（3只×1次 ≈ 1秒），查看结果：
-   - **收益曲线** — 每个任务的权益曲线叠加（Plotly 交互图）
-   - **指标卡片** — 平均收益、中位数、最佳/最差、夏普、回撤、胜率、交易次数
-   - **分股票明细表** — 每只股票每个窗口的详细指标
-6. 新增策略 `.py` 后点 **🔄 刷新策略**，无需重启服务
+根据**概念板块**筛选同板块股票，拉取 1 分钟 K 线后**滑动窗口 Pearson r 互相关**分组：
+
+1. 收集热榜 + 连板天梯所有股票的 THS 概念标签
+2. 按概念分组，同组内两两拉取通达信 1 分钟 K 线（`frequency=7, offset=240`）
+3. 计算分钟涨跌幅序列，15 分钟窗口滑动 Pearson r（步长 3，阈值 0.6）
+4. 连通分量分组，共享概念即合并
+5. 输出队友列表 + 共享概念 + 真实 r 值
+
+算法源自 board_monitor `signals/team.py` `compute_teammates()`。
 
 ---
 
 ## API
 
+### 看板
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/` | 看板页面 |
-| `GET` | `/api/health` | 服务状态 |
-| `GET` | `/api/strategies` | 可用策略列表 + 描述 |
-| `GET` | `/api/stock-pool` | 股票池统计 |
-| `GET` | `/api/cache-stats` | K线缓存统计 |
-| `POST` | `/api/reload-strategies` | 热加载策略（新增 .py 后无需重启） |
-| `POST` | `/api/backtest` | 执行回测 |
+| `GET` | `/api/dashboard` | 聚合端点，一次返回全部数据 |
+| `GET` | `/api/review` | 每日复盘（情绪+天梯） |
+| `GET` | `/api/hotrank?date=&slot=` | 热榜历史查询 |
+| `GET` | `/api/stock/{code}` | 日K + 分时图 |
+| `GET` | `/api/account` | 模拟账户 |
+| `GET` | `/health` | 服务状态 |
 
-### POST /api/backtest
+### 回测
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/backtest/strategies` | 策略列表 |
+| `POST` | `/api/backtest/run` | 执行回测 |
 
 ```bash
-curl -X POST http://localhost:8100/api/backtest \
+curl -X POST http://localhost:8100/api/backtest/run \
   -H "Content-Type: application/json" \
-  -d '{"strategy":"MACD金叉死叉","stock_count":5,"window_days":180,"runs_per_stock":3,"initial_capital":100000}'
-```
-
-响应：
-
-```json
-{
-  "strategy": "MACD金叉死叉",
-  "elapsed_seconds": 1.5,
-  "aggregate": {
-    "success_count": 15, "avg_return_pct": 1.9,
-    "avg_sharpe": -0.215, "avg_max_drawdown_pct": -21.4,
-    "overall_win_rate_pct": 30, "winning_task_pct": 43,
-    "total_trades": 89
-  },
-  "results": [
-    {
-      "code": "600578", "window_start": "2023-03-15",
-      "total_return_pct": 12.3,
-      "metrics": {"sharpe_ratio": 1.2, "max_drawdown_pct": -8.5, ...},
-      "trades": [{"date":"2023-04-10","action":"buy","price":8.59,...}]
-    }
-  ]
-}
+  -d '{"strategy":"MACD金叉死叉","stock_count":5,"window_days":180,"runs_per_stock":2}'
 ```
 
 ---
 
-## 策略开发指南
+## 部署
 
-### 快速开始
+### systemd（生产）
 
-在 `src/quant_backtester/strategies/` 下创建一个 `.py` 文件：
-
-```python
-# strategies/my_strategy.py
-from quant_backtester.strategies.base import BaseStrategy, Order
-from quant_backtester.engine.indicators import sma, golden_cross, dead_cross
-
-class MyStrategy(BaseStrategy):
-    name = "我的策略"              # 显示在看板下拉列表
-    description = "日线MA5上穿MA10买入，跌破MA5卖出"
-
-    def init(self):
-        """回测前调用一次。在此预计算指标。"""
-        close = self.daily["close"]
-        self.ma5 = sma(close, 5)
-        self.ma10 = sma(close, 10)
-
-    def next(self, i: int) -> list[Order]:
-        """每天调用一次。i=当前索引。返回交易指令列表。"""
-        if i < 20:
-            return []
-
-        if self.ma5.iloc[i] > self.ma10.iloc[i] and self.ma5.iloc[i-1] <= self.ma10.iloc[i-1]:
-            return [Order.buy(pct=1.0, reason="MA5上穿MA10")]
-
-        if self.daily["close"].iloc[i] < self.ma5.iloc[i]:
-            return [Order.sell(pct=1.0, reason="跌破MA5")]
-
-        return []
+```bash
+sudo cp deploy/sundial.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now sundial
 ```
 
-**刷新看板页面** → 点 🔄 刷新策略 → 下拉列表自动出现"我的策略" → 选中即可回测。
+服务文件 `deploy/sundial.service`：
 
-> 💡 **热加载**：写完策略 `.py` 后无需重启服务，点页面上的 🔄 刷新策略按钮即可，或手动调 API：
-> ```bash
-> curl -X POST http://localhost:8100/api/reload-strategies
-> ```
-> 返回 `{"added": ["我的策略"], ...}` 即加载成功。
-
-### 策略能用的数据
-
-| 属性 | 类型 | 说明 |
-|------|------|------|
-| `self.daily` | DataFrame | 日线 OHLCV，索引=日期，列: open/close/high/low/volume |
-| `self.weekly` | DataFrame | 周线 OHLCV，索引已对齐到日线 |
-| `self.monthly` | DataFrame | 月线 OHLCV，索引已对齐到日线 |
-| `self.has_position` | bool | 当前是否持仓 |
-| `self.profit_pct` | float | 当前持仓盈亏 (%) |
-| `self.cost` | float | 持仓成本价 |
-| `self.cash` | float | 现金余额 |
-
-### 引擎保证
-
-- **防未来函数** — `next(i)` 里只能访问 `daily.iloc[i]` 及之前的数据
-- **sell 无持仓 → 跳过** — 引擎自动拦截，记录警告日志
-- **buy 已有持仓 → 跳过** — 单股模式不重复买入
-- **Order 支持 pct** — 买入时 `pct` = 仓位比例，卖出时 `pct` = 卖出比例
-
-### 均线使用示例
-
-`init()` 里一行即可为日/周/月线附加均线列，`next()` 里直接取值：
-
-```python
-from quant_backtester.engine.indicators import add_mas, rsi
-
-class MATrendStrategy(BaseStrategy):
-    name = "均线趋势"
-    description = "日线 MA5 上穿 MA10 买入(周线多头确认)，RSI>80 或跌破 MA5 卖出"
-
-    def init(self):
-        # 日线均线：ma5, ma10, ma20, ma60
-        add_mas(self.daily)
-        # 日线 RSI
-        self.daily["rsi"] = rsi(self.daily["close"], n=14)
-        # 周线均线：ma5, ma10, ma20
-        add_mas(self.weekly, periods=[5, 10, 20])
-        # 月线均线：ma3, ma5, ma10
-        add_mas(self.monthly, periods=[3, 5, 10])
-
-    def next(self, i):
-        if i < 60:
-            return []
-        ma5 = self.daily["ma5"].iloc[i]
-        ma10 = self.daily["ma10"].iloc[i]
-        prev_ma5 = self.daily["ma5"].iloc[i - 1]
-        prev_ma10 = self.daily["ma10"].iloc[i - 1]
-        w_ma5 = self.weekly["ma5"].iloc[i]
-        w_ma10 = self.weekly["ma10"].iloc[i]
-
-        # 买入：日线 MA5 上穿 MA10 + 周线多头确认
-        if ma5 > ma10 and prev_ma5 <= prev_ma10 and w_ma5 > w_ma10:
-            return [Order.buy(pct=1.0, reason="MA5上穿MA10(日)+周线多头")]
-
-        # 卖出：RSI 超买或跌破 MA5
-        if self.daily["rsi"].iloc[i] > 80:
-            return [Order.sell(pct=1.0, reason="RSI超买")]
-        if self.daily["close"].iloc[i] < ma5:
-            return [Order.sell(pct=1.0, reason="跌破MA5")]
-        return []
+```ini
+[Service]
+WorkingDirectory=/root/.hermes/projects/sundial
+ExecStart=/usr/local/lib/hermes-agent/venv/bin/python3 -m uvicorn sundial.main:app --host 0.0.0.0 --port 8100
+MemoryMax=600M
+CPUQuota=60%
 ```
 
-> **`sma_multi` / `ema_multi`** 返回独立 DataFrame，适合多周期对比：
-> ```python
-> self.d_mas = sma_multi(self.daily["close"], [5,10,20,60])
-> self.w_mas = sma_multi(self.weekly["close"], [5,10,20])
-> self.m_mas = sma_multi(self.monthly["close"], [3,5,10])
-> # 取值: self.d_mas["ma60"].iloc[i]
-> ```
+### 管理命令
 
-### 内置指标工具
+```bash
+systemctl status sundial
+systemctl restart sundial
+journalctl -u sundial -f
+```
 
-在 `init()` 里调用，存为成员变量：
+### 本地开发
 
-| 函数 | 说明 |
-|------|------|
-| `sma(series, n)` | N日简单均线 |
-| `ema(series, n)` | N日指数均线 |
-| `sma_multi(series, [5,10,20,60])` | 一次算多条 SMA → DataFrame |
-| `ema_multi(series, [12,26])` | 一次算多条 EMA → DataFrame |
-| `add_mas(df)` | 为 OHLCV DataFrame 添加 ma5/10/20/60 列 |
-| `macd(close, fast, slow, signal)` | MACD → (DIF, DEA, 柱) |
-| `kdj(high, low, close, n, k_p, d_p)` | KDJ → (K, D, J) |
-| `rsi(close, n)` | RSI |
-| `bollinger(close, n, k)` | 布林带 → (上轨, 中轨, 下轨) |
-| `atr(high, low, close, n)` | 平均真实波幅 |
-| `golden_cross(fast, slow)` | 金叉点 (布尔 Series) |
-| `dead_cross(fast, slow)` | 死叉点 (布尔 Series) |
-| `find_peaks(series, order)` | 局部高点 |
-| `find_troughs(series, order)` | 局部低点 |
-
-### 跨周期策略示例
-
-```python
-class WeeklyFilterDaily(BaseStrategy):
-    name = "周线过滤日线"
-    description = "周K > 20周线的股票，日K金叉买入"
-
-    def init(self):
-        self.w_ma20 = sma(self.weekly["close"], 20)
-        d_dif, d_dea, _ = macd(self.daily["close"])
-        self.d_golden = golden_cross(d_dif, d_dea)
-
-    def next(self, i):
-        if i < 20:
-            return []
-        # 周线上涨趋势 + 日线金叉
-        if self.weekly["close"].iloc[i] > self.w_ma20.iloc[i] and self.d_golden.iloc[i]:
-            return [Order.buy(pct=1.0, reason="周线上涨+日线MACD金叉")]
-        return []
+```bash
+uv pip install -e .
+python3 -m uvicorn sundial.main:app --host 127.0.0.1 --port 8100
 ```
 
 ---
 
 ## 配置
 
-所有可调参数在 `src/quant_backtester/config.py`：
+### pyproject.toml
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `FASTAPI_HOST` | `"127.0.0.1"` | 监听地址（默认仅本机，公网用 toggle 脚本切换） |
-| `FASTAPI_PORT` | `8100` | 监听端口 |
-| `DAILY_BEGIN` | `"2015-01-01"` | 日线最早拉取日期 |
-| `EXCLUDE_PREFIXES` | `("688","8","900","301")` | 排除板块 |
-| `EXCLUDE_300` | `True` | 排除创业板 |
+```toml
+[project]
+name = "sundial"
+version = "0.1.0"
+description = "日晷 — A股市场数据看板"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]",
+    "baostock",
+    "akshare",
+    "httpx",
+    "pandas",
+    "mootdx",
+    "numpy",
+    "scipy",
+    "apscheduler",
+]
+```
+
+### 环境变量（可选 .env）
+
+项目根目录创建 `.env`（不提交 git）：
+
+```bash
+# 同花顺模拟炒股（用于 /api/account 同步）
+THS_USRID=116365878
+THS_DEPARTMENT=997376
+
+# 同花顺交易 API
+THS_TRADE_API=http://trade.10jqka.com.cn:8088
+```
+
+### sundial/config.py
+
+```python
+HOST = os.environ.get("SUNDIAL_HOST", "0.0.0.0")
+PORT = int(os.environ.get("SUNDIAL_PORT", "8100"))
+```
+
+---
+
+## 回测引擎
+
+### 内置策略（6 个）
+
+| 策略 | 买入 | 卖出 |
+|------|------|------|
+| KDJ 金叉死叉 | 日线 KDJ 金叉 | 死叉 / J>100 / K>80 |
+| MACD 金叉死叉 | 日线 MACD 金叉 | 死叉 |
+| MACD 顶底背离 | 日线 MACD 底背离 | 顶背离 |
+| 周线+日线 KDJ 联动 | 周K 金叉区间内日K 金叉 | 日K 死叉/J>100/K>80 / 周K 死叉强制清仓 |
+| 均线趋势 | 日线 MA5 上穿 MA10 + 周线多头确认 | RSI>80 或跌破 MA5 |
+| MA 多头趋势 | MA5>10>20>60 趋势向上 + MA5 上穿 MA10 | 跌破 MA5 |
+
+### 策略开发
+
+在 `src/quant_backtester/strategies/` 新建 `.py` 文件，继承 `BaseStrategy`：
+
+```python
+from quant_backtester.strategies.base import BaseStrategy, Order
+from quant_backtester.engine.indicators import add_mas, rsi
+
+class MyStrategy(BaseStrategy):
+    name = "我的策略"
+    description = "日线MA5上穿MA10买入，跌破MA5卖出"
+
+    def init(self):
+        add_mas(self.daily)  # ma5/10/20/60
+        self.daily["rsi"] = rsi(self.daily["close"], n=14)
+
+    def next(self, i: int) -> list[Order]:
+        if i < 60: return []
+        if self.daily["ma5"].iloc[i] > self.daily["ma10"].iloc[i] and \
+           self.daily["ma5"].iloc[i-1] <= self.daily["ma10"].iloc[i-1]:
+            return [Order.buy(pct=1.0, reason="金叉")]
+        if self.daily["rsi"].iloc[i] > 80:
+            return [Order.sell(pct=1.0, reason="RSI超买")]
+        return []
+```
+
+写完 → 点前端「🔄 刷新策略」或 `POST /api/backtest/strategies` → 无需重启。
+
+### 可用数据
+
+| 属性 | 说明 |
+|------|------|
+| `self.daily` | 日线 OHLCV，索引=日期 |
+| `self.weekly` | 周线，索引对齐日线 |
+| `self.monthly` | 月线，索引对齐日线 |
+| `self.has_position / profit_pct / cost / cash` | 持仓状态 |
+
+### 引擎保证
+
+- 防未来函数（`next(i)` 只能访问 `iloc[i]` 及之前）
+- sell 无持仓 → 跳过
+- buy 已有持仓 → 跳过（单股模式）
+- 手续费万三 + 滑点 0.1%
+- 每手 100 股取整
+- T+1（买入日锁定，次日解锁）
+- 涨跌停 ±10%
+
+### 内置指标工具
+
+在 `init()` 里调用：`sma / ema / macd / kdj / rsi / bollinger / atr / golden_cross / dead_cross / find_peaks / find_troughs`
+
+---
+
+## A股规则（引擎强制）
+
+| 规则 | 实现 |
+|------|------|
+| T+1 | `bought_day_idx` 记录买入日，次日解锁 |
+| 涨跌停 ±10% | 涨停跳过 buy，跌停跳过 sell |
+| 一手 100 股 | 买入量向下取整到 100 倍数 |
 
 ---
 
 ## 数据存储
 
-```
-data/cache/
-├── {code}.parquet      # 每只股票日线 OHLCV (62KB/只)
-└── stock_pool.json     # 过滤后股票池 (3309只)
-```
+### K线缓存
 
-| 数据 | 单只大小 | 4000只合计 |
-|------|----------|-----------|
-| 日线 (10年) | 62 KB | 241 MB |
-| 周线 (resample) | — | — |
-| 月线 (resample) | — | — |
-| **总计** | **~100 KB** | **~395 MB** |
+`data/cache/{code}.parquet` — 每只股票日线，从通达信首次拉取后缓存，后续增量更新。
 
-缓存策略：首次拉到→存 Parquet → 再次拉到→只拉增量日期（最后缓存日+1 ~ 今天）。
+### SQLite
+
+`src/data/sundial.db`：
+- `hot_rank_snapshot` — 热榜快照（每小时采集）
+- `account_snapshot` — 模拟账户快照（盘后同步）
 
 ---
 
 ## 测试
 
 ```bash
-pytest tests/ -v
-# 233 passed
+pytest tests/ -q
+# sundial: DB / 情绪 / 天梯 / API / 配置
+# quant_backtester: indicators / portfolio / engine / strategies / metrics / cache / stock_pool / fetcher / registry
 ```
-
----
-
-## 回测引擎详解
-
-### 一次回测 = 1股 × 180天窗口 × 1策略
-
-1. 从缓存/通达信获取股票全量日线
-2. 随机选一个 180 天窗口
-3. Resample 生成周线/月线，对齐索引到日线
-4. `strategy.init()` 预计算指标
-5. 逐日 `strategy.next(i)` → 返回 `list[Order]`
-6. 引擎校验并执行：buy/sell + 手续费(万三) + 滑点(0.1%)
-7. 记录每日权益曲线
-8. 回测结束强制平仓
-9. 计算夏普/最大回撤/胜率/盈亏比等指标
-
-### 指标说明
-
-| 指标 | 含义 |
-|------|------|
-| **夏普比率** | 每冒1%风险，赚了多少超额收益。>1及格，>2优秀 |
-| **最大回撤** | 历史上从最高点到最低点的最大亏损幅度 |
-| **胜率** | 盈利交易次数 / 总卖出次数 |
-| **盈亏比** | 平均盈利 / 平均亏损 |
-| **Calmar比率** | 年化收益 / 最大回撤 |
 
 ---
 
 ## 技术栈
 
-| 层次 | 选型 |
-|------|------|
+| 层 | 选型 |
+|----|------|
 | Web 框架 | FastAPI |
-| 包管理 | uv |
-| 数据源 | mootdx (通达信免费接口) |
-| 数据缓存 | Parquet (pyarrow, Snappy 压缩) |
+| 数据源 | mootdx / Baostock / AkShare / 同花顺 / 东方财富 / Sina |
+| 数据缓存 | Parquet (pyarrow) + SQLite |
 | 数据分析 | pandas + numpy + scipy |
+| 定时任务 | APScheduler（进程内，不依赖 hermes cron） |
 | 可视化 | Plotly.js (CDN) |
+| 部署 | systemd + uvicorn |
 | Python | >= 3.11 |
-
----
-
-## 日晷 Sundial — A股交易看板
-
-日晷是独立的 Web 看板（端口 8200），展示市场公开数据，与私有回测系统严格分离。
-
-### 页面
-
-| 页面 | 路由 | 功能 |
-|------|------|------|
-| 每日复盘 | `/review` | 情绪仪表盘（温度计+涨停/跌停/炸板率）+ 连板天梯 + 昨日涨停表现 |
-| 热榜 | `/hotrank` | 同花顺一小时热股榜，三时段查询 |
-| 个股 | `/stock` | Baostock 30日日K线 |
-| 回测 | `/backtest` | iframe 嵌入 quant-backtester |
-| 账户 | `/account` | 模拟账户快照 |
-
-### 数据源
-
-| 数据 | 来源 | 说明 |
-|------|------|------|
-| 涨停/跌停/炸板/强势 | 东方财富 push2ex | 支持 date 历史查询 |
-| 指数（上证/深证/创业板） | Baostock | 含成交额 |
-| 科创50 | AkShare | 补 Baostock 缺口 |
-| 同花顺热榜 | eq.10jqka.com.cn | 一小时热股榜，cron 定时采集 |
-
-### 存储
-
-SQLite (`src/data/sundial.db`)，存算分离：
-- `hot_rank_snapshot` — 热榜快照（API 无历史 date，必须存储）
-- `account_snapshot` — 模拟账户快照
-- 涨停/情绪数据实时计算，不存储
-
-### 测试
-
-```bash
-pytest tests/sundial/ -v   # 47 passed — DB / 情绪 / 天梯 / API / 配置
-```

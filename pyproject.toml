@@ -10,6 +10,10 @@ dependencies = [
     "akshare",
     "httpx",
     "pandas",
+    "mootdx",
+    "numpy",
+    "scipy",
+    "apscheduler",
 ]
 
 [project.scripts]
