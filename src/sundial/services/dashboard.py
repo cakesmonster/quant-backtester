@@ -410,7 +410,7 @@ def _build_stock_meta(hot_list: dict, ladder: dict = None) -> dict:
 # 算法来源: board_monitor signals/team.py compute_teammates()
 # ═══════════════════════════════════════════════════════════════
 
-TEAM_WINDOW = 15         # 互相关窗口（分钟）
+TEAM_WINDOW = 15         # 互相关窗口（1分钟K线 × 15 = 15分钟）
 TEAM_R_THRESHOLD = 0.6   # Pearson r 阈值
 
 def _build_teammates(hot_list: dict, ladder: dict = None) -> dict:
@@ -475,10 +475,13 @@ def _build_teammates(hot_list: dict, ladder: dict = None) -> dict:
     all_rets = {}
     for code in code_concepts:
         try:
-            df = client.bars(symbol=code, frequency=7, start=0, offset=60)
+            df = client.bars(symbol=code, frequency=7, start=0, offset=240)
             if df is None or len(df) < TEAM_WINDOW + 5:
                 continue
             closes = df["close"].values
+            # 跳过方差为0的票（盘后数据退化/停牌/一字板）
+            if float(closes.std()) < 1e-6:
+                continue
             rets = (closes[1:] - closes[:-1]) / closes[:-1] * 100
             all_rets[code] = rets
         except Exception:
