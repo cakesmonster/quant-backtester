@@ -125,7 +125,7 @@
       state.marketTapeItems = fallback;
     }
     drawMarketTape();
-    runMarketTapePulse();
+    // runMarketTapePulse removed - no fake jitter
   }
 
   function drawMarketTape() {
@@ -157,22 +157,7 @@
     });
   }
 
-  function runMarketTapePulse() {
-    setInterval(() => {
-      if (!state.data) return;
-      state.marketTapeItems = state.marketTapeItems.map((item) => {
-        const jitter = (Math.random() - 0.5) * 0.32;
-        const nextPct = item.changePct + jitter;
-        const nextPrice = item.price * (1 + jitter / 100);
-        return {
-          ...item,
-          changePct: Number(nextPct.toFixed(2)),
-          price: Number(nextPrice.toFixed(3))
-        };
-      });
-      drawMarketTape();
-    }, 4500);
-  }
+  function runMarketTapePulse() {} // disabled
 
   async function loadPageTemplate(pageId) {
     if (state.pageTemplates.has(pageId)) return state.pageTemplates.get(pageId);
@@ -618,22 +603,7 @@
     renderByDate(today);
   }
 
-  function pulseRealtimeBars() {
-    if (state.activePage !== 'daily-replay') return;
-    document.querySelectorAll('.rt-row').forEach((row) => {
-      const fill = row.querySelector('.rt-fill');
-      const val = row.querySelector('.val');
-      if (!(fill instanceof HTMLElement) || !(val instanceof HTMLElement)) return;
-      const base = Number(row.getAttribute('data-live-val') || '0');
-      const drift = (Math.random() - 0.5) * 4.8;
-      const next = Math.max(0, Math.min(100, base + drift));
-      row.setAttribute('data-live-val', next.toFixed(1));
-      row.classList.add('is-pulsing');
-      setTimeout(() => row.classList.remove('is-pulsing'), 280);
-      fill.style.width = `${next.toFixed(1)}%`;
-      val.textContent = `${next.toFixed(1)}%`;
-    });
-  }
+  function pulseRealtimeBars() {} // disabled
 
   function renderHotList() {
     const hot = state.data.hotList;
@@ -743,16 +713,9 @@
 
     el.teammateTitle.textContent = `${stock.name}（${code}）队友列表`;
     el.teammateBody.innerHTML = `
-      <div class="page-grid-2">
-        <section>
-          <div class="card-title" style="margin-bottom:8px">同概念</div>
-          ${buildTeammateList(source.byConcept)}
-        </section>
-        <section>
-          <div class="card-title" style="margin-bottom:8px">走势相似</div>
-          ${buildTeammateList(source.byTrend)}
-        </section>
-      </div>
+      <section>
+        ${buildTeammateList(source.byConcept)}
+      </section>
     `;
 
     el.teammateModal.classList.add('is-open');
@@ -1082,7 +1045,7 @@
     const stockPage = state.data.stockAnalysis;
     const fromData = stockPage.dayK && Array.isArray(stockPage.dayK[code]) ? stockPage.dayK[code] : null;
     if (fromData && fromData.length > 0) return fromData;
-    if (Array.isArray(stockPage.dayKFallback) && stockPage.dayKFallback.length > 0) return stockPage.dayKFallback;
+    return [];
     const intraday = stockPage.intraday[code] || stockPage.intradayFallback;
     return buildDayKFallback(intraday);
   }
@@ -1240,46 +1203,162 @@
       if (klineWrap) klineWrap.classList.toggle('hide', mode !== 'kline');
     }
 
-    function renderTeammates(code, mode = 'concept') {
+    async function renderTeammates(code) {
       const source = state.data.teammates[code] || state.data.teammatesFallback;
-      const list = mode === 'concept' ? source.byConcept : source.byTrend;
-      teammatePane.innerHTML = `<div class="table-wrap"><table>
-        <thead>
-          <tr><th>名称</th><th class="right">涨跌幅</th><th class="right">相关性</th></tr>
-        </thead>
-        <tbody>
-          ${list
-            .map(
-              (x) => `<tr>
-                <td><span class="hoverable-stock" data-stock-code="${x.code}">${x.name}</span></td>
-                <td class="right">${formatTrendHtml(x.changePct)}</td>
-                <td class="right mono">${x.corr.toFixed(2)}</td>
-              </tr>`
-            )
-            .join('')}
-        </tbody>
-      </table></div>`;
-      attachStockHoverHandlers();
-    }
+      const mates = source.byConcept || [];  // 板块+走势已合一
+      const stockInfo = byCode(code) || { name: code };
 
-    function renderStock(code) {
-      const stock = byCode(code);
-      if (!stock) {
-        const infoRoot = document.getElementById('stock-info');
-        if (infoRoot) {
-          infoRoot.innerHTML = `<div class="section-note">未找到代码 ${escapeHtml(code)}，请输入示例代码：600519 / 301413 / 002594</div>`;
-        }
+      if (mates.length === 0) {
+        teammatePane.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted)">暂无队友数据</div>';
         return;
       }
+
+      // ── 拉分时图数据（当前票 + 队友）──
+      const allCodes = [code, ...mates.map(m => m.code)];
+      const intradayMap = {};
+      for (const c of allCodes) {
+        const cached = state.data.stockAnalysis.intraday[c];
+        if (cached && Array.isArray(cached) && cached.length > 0) {
+          intradayMap[c] = cached;
+          continue;
+        }
+        try {
+          const resp = await fetch(`/api/stock/${c}`);
+          const d = await resp.json();
+          const ida = d.intraday || [];
+          if (ida.length > 0) {
+            intradayMap[c] = ida.map(p => ({ time: p.time || '', value: p.close || p.open || 0 }));
+            state.data.stockAnalysis.intraday[c] = intradayMap[c];
+          }
+        } catch (e) { /* skip */ }
+      }
+
+      // ── 构建叠加曲线（用涨跌幅%）──
+      const curves = [];
+      if (intradayMap[code] && intradayMap[code].length > 0) {
+        const base = intradayMap[code][0].value || 1;
+        curves.push({
+          label: `${stockInfo.name}（当前）`,
+          points: intradayMap[code].map(p => ({ value: base ? ((p.value - base) / base) * 100 : 0 })),
+        });
+      }
+      mates.forEach((m, idx) => {
+        const ida = intradayMap[m.code];
+        if (ida && ida.length > 0) {
+          const base = ida[0].value || 1;
+          curves.push({
+            label: m.name,
+            points: ida.map(p => ({ value: base ? ((p.value - base) / base) * 100 : 0 })),
+          });
+        }
+      });
+
+      const palette = ['#22d3ee', '#a78bfa', '#facc15', '#22e58c', '#fb7185', '#38bdf8'];
+
+      // ── HTML ──
+      let html = '';
+      if (curves.length >= 2) {
+        html += `<canvas id="teammate-chart" width="800" height="260" style="width:100%;min-height:260px;margin-bottom:8px"></canvas>`;
+        html += `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;font-size:11px">`;
+        curves.forEach((c, i) => {
+          html += `<span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:${palette[i % palette.length]}"></span>${c.label}</span>`;
+        });
+        html += `</div>`;
+      }
+
+      html += `<div class="table-wrap"><table>
+        <thead><tr><th>名称</th><th class="right">涨跌幅</th><th class="right">相关性</th></tr></thead>
+        <tbody>
+          ${mates.map((m, idx) => {
+            const color = palette[idx % palette.length];
+            return `<tr>
+              <td><span class="hoverable-stock" data-stock-code="${m.code}" style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:${color};display:inline-block"></span>${m.name}</span></td>
+              <td class="right">${formatTrendHtml(m.changePct)}</td>
+              <td class="right mono">${m.corr.toFixed(2)}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>`;
+
+      teammatePane.innerHTML = html;
+      attachStockHoverHandlers();
+
+      // ── 绑定点击队友切换代码 ──
+      teammatePane.querySelectorAll('.hoverable-stock').forEach(el => {
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', () => {
+          const c = el.getAttribute('data-stock-code');
+          if (c) renderStock(c).catch(e => console.warn('renderStock error:', e));
+        });
+      });
+
+      // ── 画叠加图 ──
+      if (curves.length >= 2) {
+        requestAnimationFrame(() => {
+          const canvas = document.getElementById('teammate-chart');
+          if (canvas) {
+            const origPalette = getChartTheme().strokePalette;
+            const themeWithCustomPalette = { ...getChartTheme(), strokePalette: palette, fillPalette: palette.map(c => c + '33') };
+            // 临时 override：用自定义 palette 画图
+            drawMultiLineChartWithPalette(canvas, curves, palette);
+          }
+        });
+      }
+    }
+
+    // 使用自定义 palette 的多线图
+    function drawMultiLineChartWithPalette(canvas, curveSet, strokePaletteOverride) {
+      // 复用 drawMultiLineChart 但用自定义 palette
+      const savedStroke = getChartTheme().strokePalette;
+      const savedFill = getChartTheme().fillPalette;
+      getChartTheme().strokePalette = strokePaletteOverride;
+      getChartTheme().fillPalette = strokePaletteOverride.map(c => c + '33');
+      drawMultiLineChart(canvas, curveSet);
+      getChartTheme().strokePalette = savedStroke;
+      getChartTheme().fillPalette = savedFill;
+    }
+
+    async function renderStock(code) {
+      const stock = byCode(code);
       state.currentStockCode = code;
       input.value = code;
 
-      renderStockInfoCard(code);
+      // 如果 stockMeta 中没有此代码，仍然尝试渲染基本信息
+      if (!stock) {
+        renderStockInfoCard(code);
+      } else {
+        renderStockInfoCard(code);
+      }
+
+      // 如果 dayK 中没有此代码的数据，从接口拉取
+      const stockPage = state.data.stockAnalysis;
+      if (!stockPage.dayK[code] || !Array.isArray(stockPage.dayK[code]) || stockPage.dayK[code].length === 0) {
+        try {
+          const res = await fetch('/api/stock/' + encodeURIComponent(code), { cache: 'no-store' });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.klines && data.klines.length > 0) {
+              stockPage.dayK[code] = data.klines.map(k => ({
+                date: k.date, open: k.open, close: k.close,
+                high: k.high, low: k.low, volume: k.volume
+              }));
+            }
+            if (data.intraday && data.intraday.length > 0) {
+              stockPage.intraday[code] = data.intraday.map(d => ({
+                time: d.time, value: d.close
+              }));
+            }
+          }
+        } catch (e) {
+          console.warn('fetch stock failed:', code, e);
+        }
+      }
+
       repaintStockCharts(code);
       setChartMode(chartMode);
 
-      const trades = stockPage.blockTrades[code] || stockPage.blockTradesFallback;
-      blockTradeBody.innerHTML = trades
+      const trades = stockPage.blockTrades[code] || stockPage.blockTradesFallback || [];
+      blockTradeBody.innerHTML = (trades || [])
         .map(
           (t) => `<tr>
             <td>${t.time}</td>
@@ -1291,14 +1370,12 @@
         )
         .join('');
 
-      renderTeammates(code, 'concept');
-      tabWrap.querySelectorAll('.inline-tab').forEach((tab) => tab.classList.remove('is-active'));
-      tabWrap.querySelector('[data-mode="concept"]').classList.add('is-active');
+      renderTeammates(code);
     }
 
     queryBtn.addEventListener('click', () => {
       const code = input.value.trim();
-      renderStock(code);
+      renderStock(code).catch(e => console.warn('renderStock error:', e));
     });
 
     input.addEventListener('keydown', (evt) => {
@@ -1306,14 +1383,6 @@
         evt.preventDefault();
         queryBtn.click();
       }
-    });
-
-    tabWrap.querySelectorAll('.inline-tab').forEach((tab) => {
-      tab.addEventListener('click', () => {
-        tabWrap.querySelectorAll('.inline-tab').forEach((x) => x.classList.remove('is-active'));
-        tab.classList.add('is-active');
-        renderTeammates(state.currentStockCode, tab.getAttribute('data-mode'));
-      });
     });
 
     if (chartModeWrap) {
@@ -1370,7 +1439,7 @@
     }
 
     function run(selectedId) {
-      const scenario = backtest.results[selectedId] || backtest.results.default;
+      const scenario = backtest.results[selectedId] || backtest.results['default'] || {curves:[],metrics:{},details:[]};
       const stockCount = Number(stockCountInput?.value || 20);
       const windowDays = Number(windowDaysInput?.value || 60);
       const tradeTimes = Number(tradeTimesInput?.value || 2);
@@ -1430,14 +1499,88 @@
     }
 
     strategySelect.addEventListener('change', () => run(strategySelect.value));
-    runBtn.addEventListener('click', () => run(strategySelect.value));
-    refreshBtn.addEventListener('click', () => run(strategySelect.value));
+    
+    // 开始回测 → 调真实 API
+    runBtn.addEventListener('click', async () => {
+      const sid = strategySelect.value;
+      const strategy = backtest.strategies.find(s => s.id === sid);
+      if (!strategy) return;
+      
+      // loading
+      runBtn.disabled = true;
+      runBtn.textContent = '回测中...';
+      metricsRow.innerHTML = '<div style="padding:20px;text-align:center">⏳ 正在回测，请稍候...</div>';
+      
+      try {
+        const resp = await fetch('/api/backtest/run', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            strategy: strategy.name,
+            stock_count: Number(stockCountInput?.value || 20),
+            window_days: Number(windowDaysInput?.value || 60),
+            runs_per_stock: Number(tradeTimesInput?.value || 2),
+            initial_capital: Number(capitalInput?.value || 100) * 10000,
+          }),
+        });
+        if (!resp.ok) throw new Error('回测失败');
+        const result = await resp.json();
+        
+        // 更新 state
+        backtest.results[sid] = result;
+        backtest.results.default = result;
+        
+        // 重新渲染
+        paintCurves(result.curves);
+        fillDetail(result.details);
+        metricsRow.innerHTML = (result.metrics || []).map(m2 => `<article class="kpi">
+          <div class="kpi-label">${m2.label}</div>
+          <div class="kpi-value ${metricClass(m2.value)}">${m2.value}${m2.suffix||''}</div>
+          <div class="kpi-hint">${m2.hint||''}</div>
+        </article>`).join('');
+        
+      } catch(e) {
+        metricsRow.innerHTML = `<div style="padding:20px;color:var(--red)">回测失败: ${e.message}</div>`;
+      } finally {
+        runBtn.disabled = false;
+        runBtn.textContent = '开始回测';
+      }
+    });
+    
+    // 刷新策略 → 重新加载策略列表
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = '刷新中...';
+      try {
+        const resp = await fetch('/api/backtest/strategies');
+        if (!resp.ok) throw new Error('获取失败');
+        const data = await resp.json();
+        // API 返回 {strategies: [...], details: {name: {name, description}}}
+        const names = data.strategies || [];
+        const details = data.details || {};
+        backtest.strategies = names.map(name => ({
+          id: name,
+          name: name,
+          description: (details[name] || {}).description || '',
+        }));
+        strategySelect.innerHTML = backtest.strategies
+          .map(s => `<option value="${s.id}">${s.name}</option>`)
+          .join('');
+      } catch(e) {
+        console.error('刷新策略失败:', e);
+      } finally {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = '刷新策略';
+      }
+    });
+    
     [stockCountInput, windowDaysInput, tradeTimesInput, capitalInput].forEach((input) => {
       if (!input) return;
       input.addEventListener('change', () => run(strategySelect.value));
     });
 
-    run(backtest.defaultStrategy);
+    // Don't auto-run on page load - user clicks to trigger
+      // run(backtest.defaultStrategy);
   }
 
   function renderPaperAccount() {
@@ -1509,7 +1652,7 @@
             <td class="right mono">${p.qty}</td>
             <td class="right mono">${p.cost.toFixed(2)}</td>
             <td class="right mono">${p.last.toFixed(2)}</td>
-            <td class="right mono">${p.mv}</td>
+            <td class="right mono">${Number(p.mv).toFixed(2)}万</td>
             <td class="right">${formatTrendHtml(p.pnlPct)}</td>
             <td class="right ${metricClass(p.pnlAmt)}">${p.pnlAmt > 0 ? '+' : ''}${p.pnlAmt.toFixed(2)}万</td>
           </tr>`
@@ -1713,7 +1856,7 @@
   }
 
   function bindGlobalEvents() {
-    setInterval(pulseRealtimeBars, 2800);
+    // setInterval(pulseRealtimeBars, 2800) removed - no fake animation
 
     el.nav.querySelectorAll('.nav-tab').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -1790,5 +1933,64 @@
     }
   }
 
-  bootstrap();
+  
+  // ── 搜索代码 → 跳转个股分析 ──
+  (function initSearchPill() {
+    const pill = document.querySelector('.search-pill');
+    if (!pill) return;
+    
+    let inputEl = null;
+    
+    function createInput() {
+      if (inputEl) return inputEl;
+      inputEl = document.createElement('input');
+      inputEl.type = 'text';
+      inputEl.placeholder = '输入股票代码...';
+      inputEl.style.cssText = 'background:var(--surface-2);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:6px;width:140px;font-size:13px;outline:none';
+      inputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const code = inputEl.value.trim();
+          if (code && /^\d{6}$/.test(code)) {
+            state.currentStockCode = code;
+            renderPage('stock-analysis');
+            // 等页面渲染完后自动查询
+            setTimeout(() => {
+              const si = document.getElementById('stock-input');
+              if (si) { si.value = code; renderStock(code).catch(e => console.warn(e)); }
+            }, 300);
+          }
+          destroyInput();
+        }
+        if (e.key === 'Escape') destroyInput();
+      });
+      inputEl.addEventListener('blur', () => setTimeout(destroyInput, 200));
+      return inputEl;
+    }
+    
+    function destroyInput() {
+      if (inputEl) {
+        inputEl.remove();
+        inputEl = null;
+      }
+      pill.style.display = '';
+    }
+    
+    pill.addEventListener('click', () => {
+      pill.style.display = 'none';
+      const inp = createInput();
+      pill.parentNode.insertBefore(inp, pill.nextSibling);
+      inp.focus();
+    });
+    
+    // Ctrl+K / Cmd+K 快捷键
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        pill.click();
+      }
+    });
+  })();
+
+
+bootstrap();
 })();
