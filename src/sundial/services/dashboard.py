@@ -557,13 +557,35 @@ def _collect_hotlist_pool(hot_list: dict, ladder: dict = None) -> dict:
 
 
 def _find_stock_teammates(code: str, pool: dict) -> list:
-    """为一支股票找队友：拉1分钟线，与池中每只票做滑动窗口互相关。
+    """为一支股票找队友：在同概念/同板块的股票中，拉1分钟线做滑动窗口互相关。
     Returns: [{code, name, changePct, corr, concepts}, ...] 按 corr 降序
     """
     import numpy as np
     from mootdx.quotes import Quotes
 
-    if not pool or code in pool and len(pool) <= 1:
+    if not pool:
+        return []
+
+    client = Quotes.factory(market="std")
+
+    # 目标股票的概念
+    target_info = pool.get(code, {})
+    target_concepts = target_info.get("concepts", set())
+
+    # 如果不在池中（非热榜票），无法取概念 → 回退到全池对比
+    if not target_concepts:
+        candidates = {c: info for c, info in pool.items() if c != code}
+    else:
+        # 筛选同概念/同板块的候选股
+        candidates = {}
+        for c, info in pool.items():
+            if c == code:
+                continue
+            shared = target_concepts & info.get("concepts", set())
+            if shared:
+                candidates[c] = info
+
+    if not candidates:
         return []
 
     client = Quotes.factory(market="std")
@@ -580,11 +602,9 @@ def _find_stock_teammates(code: str, pool: dict) -> list:
     except Exception:
         return []
 
-    # 拉池中股票
+    # 拉候选股 1-min K 线
     pool_rets = {}
-    for c, info in pool.items():
-        if c == code:
-            continue
+    for c, info in candidates.items():
         try:
             df = client.bars(symbol=c, frequency=7, start=0, offset=240)
             if df is None or len(df) < TEAM_WINDOW + 5:
@@ -602,9 +622,7 @@ def _find_stock_teammates(code: str, pool: dict) -> list:
     for c, rets in pool_rets.items():
         best_r = _sliding_corr(target_rets, rets)
         if abs(best_r) >= TEAM_R_THRESHOLD:
-            info = pool[c]
-            # 共享概念
-            target_concepts = pool.get(code, {}).get("concepts", set())
+            info = candidates[c]
             shared = list(target_concepts & info.get("concepts", set()))
             mates.append({
                 "code": c,
@@ -615,7 +633,7 @@ def _find_stock_teammates(code: str, pool: dict) -> list:
             })
 
     mates.sort(key=lambda x: x["corr"], reverse=True)
-    return mates[:6]
+    return mates[:5]
 
 
 def _build_teammates(hot_list: dict, ladder: dict = None) -> dict:
@@ -796,8 +814,8 @@ def _build_teammates(hot_list: dict, ladder: dict = None) -> dict:
                     })
             mate_list.sort(key=lambda x: x["corr"], reverse=True)
             teammates[code] = {
-                "byConcept": mate_list[:6],
-                "byTrend": mate_list[:6],
+                "byConcept": mate_list[:5],
+                "byTrend": mate_list[:5],
             }
 
     return teammates
