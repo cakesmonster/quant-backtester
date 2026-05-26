@@ -75,6 +75,7 @@ async def build_dashboard(target_date: str = None, stock_code: str = None) -> di
         "strategyBacktest": strategy_backtest,
         "paperAccount": paper_account,
         "teammates": teammates,
+        "teammatesFallback": {"byConcept": [], "byTrend": []},
         "stockMeta": stock_meta,
         "marketTape": market_tape,
     }
