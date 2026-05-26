@@ -262,17 +262,62 @@ async def _build_hot_list(iso: str) -> dict:
     now = datetime.now()
     current_slot = now.strftime("%H:00")  # 实时时段（整点）
     default_period = current_slot
-    # 实时时段 + 传统三时段（前端固定按钮，从 SQLite 历史数据补）
-    slot_map = {
-        current_slot: items,
-        "11:30": items,
-        "15:00": items,
-        "21:00": items,
-    }
+
+    # 实时时段用 API 数据
+    slot_map = {current_slot: items}
+
+    # 固定时段从 SQLite 历史数据补
+    for slot in ["12:00", "15:00", "21:00"]:
+        if slot in slot_map:
+            continue  # 当前时段已有 API 数据，不覆盖
+        slot_items = _query_hot_rank_slot(iso, slot)
+        if not slot_items:
+            # 跨日回退：凌晨查昨日数据
+            from datetime import timedelta
+            yesterday = (date.fromisoformat(iso) - timedelta(days=1)).isoformat()
+            slot_items = _query_hot_rank_slot(yesterday, slot)
+        if slot_items:
+            slot_map[slot] = slot_items
+
     return {
         "defaultPeriod": default_period,
         "byDate": {iso: {"periods": slot_map}},
     }
+
+
+def _query_hot_rank_slot(date_str: str, target_slot: str) -> list:
+    """从 SQLite 查指定时段的热榜数据，兼容 HH:MM / HHMM 两种格式"""
+    from ..db import db_session
+    with db_session() as conn:
+        # 尝试多种格式
+        candidates = [target_slot]
+        if ":" in target_slot:
+            candidates.append(target_slot.replace(":", ""))  # "12:00" → "1200"
+        else:
+            candidates.append(f"{target_slot[:2]}:{target_slot[2:]}")  # "1200" → "12:00"
+
+        for slot_fmt in candidates:
+            cur = conn.execute(
+                "SELECT rank, code, name, heat_value, concept_tag, is_limit_up, change_pct "
+                "FROM hot_rank_snapshot WHERE date=? AND slot=? ORDER BY rank LIMIT 30",
+                (date_str, slot_fmt),
+            )
+            rows = cur.fetchall()
+            if rows:
+                max_heat = max((r[3] for r in rows), default=1)
+                return [
+                    {
+                        "rank": r[0],
+                        "code": r[1],
+                        "name": r[2],
+                        "heat": round(r[3] / max(max_heat, 1) * 100, 1),
+                        "concepts": (r[4] or "").split(";") if r[4] else [],
+                        "changePct": r[6] or 0,
+                        "limitUp": bool(r[5]),
+                    }
+                    for r in rows
+                ]
+    return []
 
 
 # ═══════════════════════════════════════════════════════════════
