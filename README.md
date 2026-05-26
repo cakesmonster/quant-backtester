@@ -30,7 +30,7 @@ systemctl start sundial    # 启动 → http://localhost:8100
     │         数据层               │
     │  mootdx   Baostock  AkShare │
     │  同花顺热榜  东方财富 push2ex │
-    │  Sina 行情  Parquet 缓存     │
+    │  Parquet 缓存     │
     └─────────────────────────────┘
 ```
 
@@ -56,7 +56,7 @@ sundial/
 │   │   │   ├── ladder.py      # 连板天梯
 │   │   │   └── hot_rank.py    # 热榜查询
 │   │   ├── data/               # 数据源适配层
-│   │   │   ├── ths_api.py     # 同花顺热榜 + Sina 补涨跌幅
+│   │   │   ├── ths_api.py     # 同花顺热榜（含涨跌幅 rise_and_fall）
 │   │   │   ├── ths_trade_api.py # 同花顺模拟交易
 │   │   │   ├── eastmoney_api.py # 东方财富 push2ex
 │   │   │   └── baostock_api.py  # Baostock 指数
@@ -91,8 +91,7 @@ sundial/
 | 涨停/跌停/炸板 | 东方财富 push2ex | 支持历史 date 查询 |
 | 指数（沪/深/创） | Baostock | 含成交额 |
 | 科创50 | AkShare | 补 Baostock 缺口 |
-| 热榜排名 + 概念 | 同花顺 THS API | 一小时热股榜，APScheduler 每小时采集 |
-| 热榜涨跌幅 | Sina 行情 `hq.sinajs.cn` | THS 不含涨跌幅，批量补查 |
+| 热榜排名 + 概念 + 涨跌幅 | 同花顺 THS API `dq.10jqka.com.cn` | `rise_and_fall` 字段直接含涨跌幅，APScheduler 每小时采集 |
 | 个股日K | 通达信 mootdx | Parquet 缓存，与回测同源 |
 | 分时图 | 通达信 mootdx 1分钟K线 | `frequency=7, offset=240` |
 | 找队友 | 通达信 mootdx 1分钟K线 | 滑动窗口 Pearson r 互相关 |
@@ -330,7 +329,7 @@ pytest tests/ -q
 | 层 | 选型 |
 |----|------|
 | Web 框架 | FastAPI |
-| 数据源 | mootdx / Baostock / AkShare / 同花顺 / 东方财富 / Sina |
+| 数据源 | mootdx / Baostock / AkShare / 同花顺 / 东方财富 |
 | 数据缓存 | Parquet (pyarrow) + SQLite |
 | 数据分析 | pandas + numpy + scipy |
 | 定时任务 | APScheduler（进程内，不依赖 hermes cron） |
