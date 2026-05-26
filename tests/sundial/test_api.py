@@ -138,3 +138,25 @@ class TestAPIRoutes:
         assert r.status_code == 200
         data = r.json()
         assert data["total_asset"] == 0
+
+
+class TestDashboardShape:
+    """仪表盘响应结构契约 — 前端依赖这些字段"""
+
+    def test_teammates_fallback_present(self, client):
+        """teammatesFallback 必须存在，避免前端 source.byConcept 抛 TypeError"""
+        mock_data = {
+            "meta": {}, "dailyReplay": {"byDate": {}}, "hotList": {"byDate": {}},
+            "stockAnalysis": {}, "strategyBacktest": {}, "paperAccount": {"byDate": {}},
+            "teammates": {}, "teammatesFallback": {"byConcept": [], "byTrend": []},
+            "stockMeta": {}, "marketTape": [],
+        }
+        with patch("sundial.services.dashboard.build_dashboard", AsyncMock(return_value=mock_data)):
+            r = client.get("/api/dashboard")
+            assert r.status_code == 200
+            data = r.json()
+            assert "teammatesFallback" in data
+            assert "byConcept" in data["teammatesFallback"]
+            assert "byTrend" in data["teammatesFallback"]
+            assert data["teammatesFallback"]["byConcept"] == []
+            assert data["teammatesFallback"]["byTrend"] == []
