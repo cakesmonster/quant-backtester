@@ -4,7 +4,6 @@
     pageTemplates: new Map(),
     activePage: 'daily-replay',
     currentStockCode: '',
-    teammateContext: null,
     hoveredStock: null,
     charts: new Map(),
     marketTapeItems: []
@@ -29,9 +28,6 @@
     hoverCardCode: document.getElementById('hover-card-code'),
     hoverFields: document.getElementById('hover-fields'),
     hoverTags: document.getElementById('hover-tags'),
-    teammateModal: document.getElementById('teammate-modal'),
-    teammateTitle: document.getElementById('teammate-title'),
-    teammateBody: document.getElementById('teammate-body')
   };
 
   function formatPct(value, digits = 2) {
@@ -655,7 +651,8 @@
       hotBody.querySelectorAll('.teammate-trigger').forEach((btn) => {
         btn.addEventListener('click', (event) => {
           event.stopPropagation();
-          openTeammateModal(btn.getAttribute('data-stock-code'));
+          state.currentStockCode = btn.getAttribute('data-stock-code');
+          renderPage('stock-analysis');
         });
       });
 
@@ -683,50 +680,8 @@
     setPeriod(activePeriod);
   }
 
-  function buildTeammateList(items) {
-    return `<div class="table-wrap"><table>
-      <thead>
-        <tr>
-          <th>名称</th>
-          <th class="right">涨跌幅</th>
-          <th class="right">相关性</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${items
-          .map(
-            (item) => `<tr data-stock-code="${item.code}">
-              <td><span class="hoverable-stock" data-stock-code="${item.code}">${item.name}</span></td>
-              <td class="right">${formatTrendHtml(item.changePct)}</td>
-              <td class="right mono">${item.corr.toFixed(2)}</td>
-            </tr>`
-          )
-          .join('')}
-      </tbody>
-    </table></div>`;
-  }
 
-  function openTeammateModal(code) {
-    const source = state.data.teammates[code];  // 热榜票一定在缓存中
-    if (!source) return;
-    const stock = byCode(code) || { name: code };
-    state.teammateContext = code;
 
-    el.teammateTitle.textContent = `${stock.name}（${code}）队友列表`;
-    el.teammateBody.innerHTML = `
-      <section>
-        ${buildTeammateList(source.byConcept)}
-      </section>
-    `;
-
-    el.teammateModal.classList.add('is-open');
-    attachStockHoverHandlers();
-  }
-
-  function closeTeammateModal() {
-    el.teammateModal.classList.remove('is-open');
-    state.teammateContext = null;
-  }
 
   function renderStockInfoCard(code) {
     const stock = byCode(code);
@@ -1929,14 +1884,7 @@
       }
     });
 
-    document.getElementById('close-teammate-modal').addEventListener('click', closeTeammateModal);
-    el.teammateModal.addEventListener('click', (evt) => {
-      if (evt.target === el.teammateModal) closeTeammateModal();
-    });
 
-    document.addEventListener('keydown', (evt) => {
-      if (evt.key === 'Escape') closeTeammateModal();
-    });
 
     document.body.addEventListener('mouseleave', hideHoverCard);
   }
