@@ -7,6 +7,41 @@ from datetime import date, datetime, timedelta
 
 DATE_FMT = "%Y%m%d"
 
+# ── 板块数据增强 ──
+SECTOR_MAP_PATH = "/root/.hermes/projects/sundial/data/cache/stock_sector_map.json"
+
+
+def _load_sector_map() -> dict:
+    """加载个股→板块正排索引，失败返回 {}"""
+    try:
+        with open(SECTOR_MAP_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _enrich_concepts(pool: dict) -> dict:
+    """用 stock_sector_map.json 补全池中股票的板块概念。
+
+    Args:
+        pool: {code: {name, changePct, concepts: set}}
+
+    Returns:
+        增强后的 pool，concepts 合并了板块数据
+    """
+    sector_map = _load_sector_map()
+    if not sector_map:
+        return pool
+
+    for code, info in pool.items():
+        sm = sector_map.get(code)
+        if not sm:
+            continue
+        sector_concepts = set(sm.get("概念", [])) | set(sm.get("行业", []))
+        info["concepts"] = info.get("concepts", set()) | sector_concepts
+
+    return pool
+
 
 async def build_dashboard(target_date: str = None, stock_code: str = None) -> dict:
     d = target_date or date.today().strftime(DATE_FMT)
@@ -553,7 +588,7 @@ def _collect_hotlist_pool(hot_list: dict, ladder: dict = None) -> dict:
                     pool[c] = {"name": s.get("name", ""), "changePct": s.get("change_pct", 0), "concepts": set()}
                 if sector:
                     pool[c]["concepts"].add(sector)
-    return pool
+    return _enrich_concepts(pool)
 
 
 def _find_stock_teammates(code: str, pool: dict) -> list:
@@ -687,6 +722,16 @@ def _build_teammates(hot_list: dict, ladder: dict = None) -> dict:
                         "changePct": s.get("change_pct", 0),
                         "concepts": [sector] if sector else [],
                     }
+
+    # 补全板块概念（同花顺 stock_sector_map.json）
+    # 将 code_info 转为 pool 格式调 _enrich_concepts，再合并回 code_concepts
+    pool_for_enrich = {
+        c: {"name": "", "changePct": 0, "concepts": code_concepts.get(c, set())}
+        for c in code_concepts
+    }
+    enriched_pool = _enrich_concepts(pool_for_enrich)
+    for c, info in enriched_pool.items():
+        code_concepts[c] = info.get("concepts", set())
 
     # 去掉没有概念的票
     code_concepts = {c: v for c, v in code_concepts.items() if v}
