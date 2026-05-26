@@ -2,7 +2,7 @@
 import json
 import sys
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import uvicorn
@@ -180,7 +180,20 @@ async def api_review(date: str = Query(None)):
 @app.get("/api/hotrank")
 async def api_hotrank(date: str = Query(None), slot: str = Query("15:00")):
     d = date or _today_iso()
-    return {"date": d, "slot": slot, "items": get_hot_rank(d, slot)}
+
+    # 当前时段 → 实时拉取 THS API（而非查 SQLite 历史）
+    now = datetime.now()
+    current_hour = now.strftime("%H:00")
+    if d == _today_iso() and slot == current_hour:
+        try:
+            from .data.ths_api import fetch_hot_rank
+            items = await fetch_hot_rank()
+            if items:
+                return {"date": d, "slot": slot, "items": items, "source": "live"}
+        except Exception:
+            pass  # API 失败回退到 SQLite
+
+    return {"date": d, "slot": slot, "items": get_hot_rank(d, slot), "source": "db"}
 
 
 @app.get("/api/stock/{code}")
