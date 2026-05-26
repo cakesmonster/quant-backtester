@@ -369,7 +369,7 @@ def _build_paper_account() -> dict:
 # ═══════════════════════════════════════════════════════════════
 
 def _build_stock_meta(hot_list: dict, ladder: dict = None) -> dict:
-    """从热榜 + 连板天梯 构建 stockMeta"""
+    """从热榜 + 连板天梯 构建 stockMeta，补 Baostock PE/换手率 + mootdx 市值"""
     meta = {}
     # 热榜股
     by_date = hot_list.get("byDate", {})
@@ -401,7 +401,94 @@ def _build_stock_meta(hot_list: dict, ladder: dict = None) -> dict:
                     "concepts": [s.get("sector", "")] if s.get("sector") else [],
                     "changePct": s.get("change_pct", 0),
                 }
+
+    # ── 批量补财务数据 ──
+    if meta:
+        codes = list(meta.keys())
+        _fetch_financials_batch(meta, codes)
     return meta
+
+
+def _fetch_financials_batch(meta: dict, codes: list[str]) -> None:
+    """批量补 PE/换手率 (Baostock) + 市值 (mootdx finance)"""
+    import baostock as bs
+
+    # 复用 baostock_api._ensure_login 模式，不单独 login/logout 避免会话冲突
+    _ensure_bs_login()
+
+    # 1. Baostock: PE + 换手率
+    for code in codes:
+        try:
+            prefix = "sh" if code.startswith(("6", "5")) else "sz"
+            # 往回找最近 3 个交易日，Baostock 通常 T+1 更新
+            found = False
+            for offset in range(3):
+                d = (date.today() - timedelta(days=offset)).isoformat()
+                rs = bs.query_history_k_data_plus(
+                    f"{prefix}.{code}",
+                    "date,close,peTTM,turn",
+                    start_date=d, end_date=d, frequency="d",
+                )
+                if rs is None or rs.error_code != "0":
+                    continue
+                while rs.next():
+                    row = rs.get_row_data()
+                    if len(row) >= 4 and row[1] and float(row[1]) > 0:
+                        pe = float(row[2]) if row[2] else 0
+                        turn = float(row[3]) if row[3] else 0
+                        meta[code]["pe"] = round(pe, 2)
+                        meta[code]["turnover"] = round(turn, 2)
+                        found = True
+                        break
+                if found:
+                    break
+        except Exception:
+            continue
+
+    # 2. mootdx: 总股本/流通股本 → 市值
+    try:
+        from mootdx.quotes import Quotes
+        client = Quotes.factory(market="std")
+        for code in codes:
+            try:
+                df = client.finance(symbol=code)
+                if df is None or df.empty:
+                    continue
+                latest = df.sort_values("updated_date").iloc[-1]
+                total_shares = float(latest.get("zongguben", 0) or 0)
+                float_shares = float(latest.get("liutongguben", 0) or 0)
+                if total_shares <= 0:
+                    continue
+
+                try:
+                    q = client.quotes(symbol=[code])
+                    if q is not None and not q.empty:
+                        price = float(q.iloc[0].get("price", 0))
+                        if price <= 0:
+                            price = float(q.iloc[0].get("last_close", 0))
+                    else:
+                        price = 0
+                except Exception:
+                    price = 0
+
+                if price > 0:
+                    meta[code]["marketCap"] = round(price * total_shares / 1e8, 2)
+                    meta[code]["floatCap"] = round(price * float_shares / 1e8, 2) if float_shares > 0 else 0
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
+_bs_logged = False
+
+
+def _ensure_bs_login():
+    global _bs_logged
+    if not _bs_logged:
+        import baostock as bs
+        bs.login()
+        _bs_logged = True
 
 
 # ═══════════════════════════════════════════════════════════════
