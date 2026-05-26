@@ -158,7 +158,7 @@ async def api_stock(code: str):
     try:
         df = get_daily(code)
         if len(df) == 0:
-            return {"code": code, "klines": [], "intraday": [], "teammates": []}
+            return {"code": code, "klines": [], "intraday": [], "teammates": [], "bigOrders": []}
         recent = df.tail(30)
         klines = []
         for idx, row in recent.iterrows():
@@ -174,9 +174,11 @@ async def api_stock(code: str):
         intraday = await _fetch_intraday(code)
         # 队友 — 实时与热榜池做互相关
         teammates = await _fetch_teammates_for_stock(code)
-        return {"code": code, "klines": klines, "intraday": intraday, "teammates": teammates}
+        # 大单 — mootdx 逐笔成交 ≥1000万
+        big_orders = await _fetch_big_orders(code)
+        return {"code": code, "klines": klines, "intraday": intraday, "teammates": teammates, "bigOrders": big_orders}
     except Exception as e:
-        return {"code": code, "klines": [], "intraday": [], "teammates": [], "error": str(e)}
+        return {"code": code, "klines": [], "intraday": [], "teammates": [], "bigOrders": [], "error": str(e)}
 
 
 async def _fetch_teammates_for_stock(code: str) -> list:
@@ -223,6 +225,40 @@ async def _fetch_intraday(code: str) -> list:
             "volume": int(float(row.get("vol", 0) or 0)),
         })
     return result
+
+
+async def _fetch_big_orders(code: str) -> list:
+    """mootdx 逐笔成交 → 筛选 ≥1000万大单"""
+    from mootdx.quotes import Quotes
+    try:
+        client = Quotes.factory(market="std")
+        df = client.transaction(symbol=code, start=0, offset=50)
+    except Exception:
+        return []
+    if df is None or len(df) == 0:
+        return []
+
+    BIG_ORDER_AMOUNT = 10_000_000  # 1000万
+    orders = []
+    for _, row in df.iterrows():
+        try:
+            vol = int(row.get("vol", 0) or 0)
+            price = float(row.get("price", 0) or 0)
+            amount = vol * price * 100  # vol=手，×100=股，×price=金额
+            if amount < BIG_ORDER_AMOUNT:
+                continue
+            buyorsell = int(row.get("buyorsell", 2) or 2)
+            side = "卖出" if buyorsell == 1 else ("买入" if buyorsell == 0 else "中性")
+            orders.append({
+                "time": str(row.get("time", "")),
+                "side": side,
+                "volume": vol,
+                "amount": f"{amount/10000:.0f}万",
+                "price": price,
+            })
+        except (ValueError, TypeError):
+            continue
+    return orders
 
 
 @app.post("/api/account/save")

@@ -145,12 +145,33 @@ class TestStockTeammates:
 
     def test_api_stock_includes_teammates(self, client):
         """api/stock/{code} 返回 teammates 字段"""
-        mock_resp = {"code": "600519", "klines": [], "intraday": [], "teammates": []}
         with patch("sundial.main._fetch_intraday", AsyncMock(return_value=[])), \
              patch("sundial.main._fetch_teammates_for_stock", AsyncMock(return_value=[])), \
+             patch("sundial.main._fetch_big_orders", AsyncMock(return_value=[])), \
              patch("quant_backtester.data.cache.get_daily", MagicMock(return_value=__import__("pandas").DataFrame({"open":[1400],"close":[1405],"high":[1410],"low":[1395],"volume":[10000]}, index=[__import__("pandas").Timestamp("2026-05-26")]))):
             r = client.get("/api/stock/600519")
             assert r.status_code == 200
             data = r.json()
             assert "teammates" in data
             assert isinstance(data["teammates"], list)
+
+    def test_api_stock_includes_big_orders(self, client):
+        """api/stock/{code} 返回 bigOrders 字段"""
+        mock_big = [
+            {"time": "10:05:30", "side": "卖出", "volume": 1500, "amount": "1800万", "price": 12.00},
+            {"time": "10:06:15", "side": "买入", "volume": 2000, "amount": "2400万", "price": 12.05},
+        ]
+        with patch("sundial.main._fetch_intraday", AsyncMock(return_value=[])), \
+             patch("sundial.main._fetch_teammates_for_stock", AsyncMock(return_value=[])), \
+             patch("sundial.main._fetch_big_orders", AsyncMock(return_value=mock_big)), \
+             patch("quant_backtester.data.cache.get_daily", MagicMock(return_value=__import__("pandas").DataFrame({"open":[1400],"close":[1405],"high":[1410],"low":[1395],"volume":[10000]}, index=[__import__("pandas").Timestamp("2026-05-26")]))):
+            r = client.get("/api/stock/600519")
+            assert r.status_code == 200
+            data = r.json()
+            assert "bigOrders" in data
+            assert isinstance(data["bigOrders"], list)
+            assert len(data["bigOrders"]) == 2
+            assert data["bigOrders"][0]["side"] == "卖出"
+            assert data["bigOrders"][0]["amount"] == "1800万"
+            assert data["bigOrders"][1]["side"] == "买入"
+

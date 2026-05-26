@@ -1348,7 +1348,8 @@
 
       // 如果 dayK 中没有此代码的数据，从接口拉取
       const stockPage = state.data.stockAnalysis;
-      if (!stockPage.dayK[code] || !Array.isArray(stockPage.dayK[code]) || stockPage.dayK[code].length === 0) {
+      let needsFetch = !stockPage.dayK[code] || !Array.isArray(stockPage.dayK[code]) || stockPage.dayK[code].length === 0;
+      if (needsFetch || !stockPage.blockTrades[code]) {
         try {
           const res = await fetch('/api/stock/' + encodeURIComponent(code), { cache: 'no-store' });
           if (res.ok) {
@@ -1363,6 +1364,9 @@
               stockPage.intraday[code] = data.intraday.map(d => ({
                 time: d.time, value: d.close
               }));
+            }
+            if (data.bigOrders) {
+              stockPage.blockTrades[code] = data.bigOrders;
             }
           }
         } catch (e) {
