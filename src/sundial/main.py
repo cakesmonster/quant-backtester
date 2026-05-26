@@ -153,12 +153,12 @@ async def api_hotrank(date: str = Query(None), slot: str = Query("15:00")):
 
 @app.get("/api/stock/{code}")
 async def api_stock(code: str):
-    """个股日K — 统一走通达信 mootdx（与回测引擎同源）"""
+    """个股日K + 分时 + 动态队友 — 统一走通达信 mootdx"""
     from quant_backtester.data.cache import get_daily
     try:
         df = get_daily(code)
         if len(df) == 0:
-            return {"code": code, "klines": [], "intraday": []}
+            return {"code": code, "klines": [], "intraday": [], "teammates": []}
         recent = df.tail(30)
         klines = []
         for idx, row in recent.iterrows():
@@ -172,9 +172,34 @@ async def api_stock(code: str):
             })
         # 分时图 — 通达信 mootdx 1分钟K线
         intraday = await _fetch_intraday(code)
-        return {"code": code, "klines": klines, "intraday": intraday}
+        # 队友 — 实时与热榜池做互相关
+        teammates = await _fetch_teammates_for_stock(code)
+        return {"code": code, "klines": klines, "intraday": intraday, "teammates": teammates}
     except Exception as e:
-        return {"code": code, "klines": [], "intraday": [], "error": str(e)}
+        return {"code": code, "klines": [], "intraday": [], "teammates": [], "error": str(e)}
+
+
+async def _fetch_teammates_for_stock(code: str) -> list:
+    """实时拉热榜池，计算单只股票的队友"""
+    from .services.dashboard import _find_stock_teammates, _collect_hotlist_pool
+    try:
+        # 拉热榜
+        hot_list = await _build_dashboard_hot_list()
+        if not hot_list:
+            return []
+        pool = _collect_hotlist_pool(hot_list)
+        if not pool:
+            return []
+        return _find_stock_teammates(code, pool)
+    except Exception:
+        return []
+
+
+async def _build_dashboard_hot_list() -> dict:
+    """轻量版 _build_hot_list，只返回热榜数据"""
+    from .services.dashboard import _build_hot_list
+    from datetime import date
+    return await _build_hot_list(date.today().isoformat())
 
 
 async def _fetch_intraday(code: str) -> list:

@@ -75,7 +75,6 @@ async def build_dashboard(target_date: str = None, stock_code: str = None) -> di
         "strategyBacktest": strategy_backtest,
         "paperAccount": paper_account,
         "teammates": teammates,
-        "teammatesFallback": {"byConcept": [], "byTrend": []},
         "stockMeta": stock_meta,
         "marketTape": market_tape,
     }
@@ -500,6 +499,124 @@ def _ensure_bs_login():
 
 TEAM_WINDOW = 15         # 互相关窗口（1分钟K线 × 15 = 15分钟）
 TEAM_R_THRESHOLD = 0.6   # Pearson r 阈值
+
+
+def _sliding_corr(a, b) -> float:
+    """滑动窗口 Pearson r，返回最佳绝对值。a, b 为涨跌幅序列(%)。"""
+    import numpy as np
+    min_len = min(len(a), len(b))
+    best_r = 0.0
+    for start in range(0, min_len - TEAM_WINDOW, 3):
+        a_win = a[start:start + TEAM_WINDOW]
+        b_win = b[start:start + TEAM_WINDOW]
+        if len(a_win) < 10:
+            continue
+        try:
+            r = np.corrcoef(a_win, b_win)[0, 1]
+            if np.isnan(r):
+                continue
+        except Exception:
+            continue
+        if abs(r) > abs(best_r):
+            best_r = r
+    return best_r
+
+
+def _collect_hotlist_pool(hot_list: dict, ladder: dict = None) -> dict:
+    """收集热榜+连板股票池。
+    Returns: {code: {name, changePct, concepts: set}}
+    """
+    pool = {}
+    by_date = hot_list.get("byDate", {})
+    for date_data in by_date.values():
+        for items in date_data.get("periods", {}).values():
+            if items:
+                for item in items:
+                    c = item["code"]
+                    concepts = set(item.get("concepts", []))
+                    concepts.discard("")
+                    pool[c] = {
+                        "name": item["name"],
+                        "changePct": item.get("changePct", 0),
+                        "concepts": concepts,
+                    }
+                break
+
+    if ladder:
+        for stocks in ladder.get("ladder", {}).values():
+            for s in stocks:
+                c = s.get("code", "")
+                if not c:
+                    continue
+                sector = s.get("sector", "")
+                if c not in pool:
+                    pool[c] = {"name": s.get("name", ""), "changePct": s.get("change_pct", 0), "concepts": set()}
+                if sector:
+                    pool[c]["concepts"].add(sector)
+    return pool
+
+
+def _find_stock_teammates(code: str, pool: dict) -> list:
+    """为一支股票找队友：拉1分钟线，与池中每只票做滑动窗口互相关。
+    Returns: [{code, name, changePct, corr, concepts}, ...] 按 corr 降序
+    """
+    import numpy as np
+    from mootdx.quotes import Quotes
+
+    if not pool or code in pool and len(pool) <= 1:
+        return []
+
+    client = Quotes.factory(market="std")
+
+    # 拉目标股票 1-min K 线
+    try:
+        df = client.bars(symbol=code, frequency=7, start=0, offset=240)
+        if df is None or len(df) < TEAM_WINDOW + 5:
+            return []
+        closes = df["close"].values
+        if float(closes.std()) < 1e-6:
+            return []
+        target_rets = (closes[1:] - closes[:-1]) / closes[:-1] * 100
+    except Exception:
+        return []
+
+    # 拉池中股票
+    pool_rets = {}
+    for c, info in pool.items():
+        if c == code:
+            continue
+        try:
+            df = client.bars(symbol=c, frequency=7, start=0, offset=240)
+            if df is None or len(df) < TEAM_WINDOW + 5:
+                continue
+            closes_c = df["close"].values
+            if float(closes_c.std()) < 1e-6:
+                continue
+            rets = (closes_c[1:] - closes_c[:-1]) / closes_c[:-1] * 100
+            pool_rets[c] = rets
+        except Exception:
+            continue
+
+    # 互相关
+    mates = []
+    for c, rets in pool_rets.items():
+        best_r = _sliding_corr(target_rets, rets)
+        if abs(best_r) >= TEAM_R_THRESHOLD:
+            info = pool[c]
+            # 共享概念
+            target_concepts = pool.get(code, {}).get("concepts", set())
+            shared = list(target_concepts & info.get("concepts", set()))
+            mates.append({
+                "code": c,
+                "name": info["name"],
+                "changePct": info.get("changePct", 0),
+                "corr": round(abs(best_r), 2),
+                "concepts": shared,
+            })
+
+    mates.sort(key=lambda x: x["corr"], reverse=True)
+    return mates[:6]
+
 
 def _build_teammates(hot_list: dict, ladder: dict = None) -> dict:
     """找队友：先按概念/板块分组，同组内再算分时图 Pearson r 互相关。

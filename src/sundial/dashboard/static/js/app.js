@@ -707,7 +707,8 @@
   }
 
   function openTeammateModal(code) {
-    const source = state.data.teammates[code] || state.data.teammatesFallback;
+    const source = state.data.teammates[code];  // 热榜票一定在缓存中
+    if (!source) return;
     const stock = byCode(code) || { name: code };
     state.teammateContext = code;
 
@@ -1204,8 +1205,23 @@
     }
 
     async function renderTeammates(code) {
-      const source = state.data.teammates[code] || state.data.teammatesFallback;
-      const mates = source.byConcept || [];  // 板块+走势已合一
+      let source = state.data.teammates[code];
+      // 不在热榜缓存中 → 实时查询
+      if (!source) {
+        try {
+          const resp = await fetch(`/api/stock/${code}`);
+          const d = await resp.json();
+          const mates = d.teammates || [];
+          if (mates.length > 0) {
+            source = { byConcept: mates, byTrend: mates };
+            // 缓存到 state，避免重复请求
+            state.data.teammates[code] = source;
+          }
+        } catch (e) {
+          console.warn('fetch teammates error:', e);
+        }
+      }
+      const mates = (source && source.byConcept) || [];
       const stockInfo = byCode(code) || { name: code };
 
       if (mates.length === 0) {
