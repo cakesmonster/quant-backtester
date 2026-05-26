@@ -175,3 +175,36 @@ class TestStockTeammates:
             assert data["bigOrders"][0]["amount"] == "1800万"
             assert data["bigOrders"][1]["side"] == "买入"
 
+
+class TestBigOrderCollection:
+    """大单采集（mootdx 逐笔 → SQLite）"""
+
+    def test_filters_by_amount_threshold(self):
+        """仅大于等于1000万的成交被保存"""
+        import pandas as pd
+        from unittest.mock import MagicMock, patch
+
+        # 两条：一条达标（10000手×10×100=1000万），一条不达标
+        mock_txn = pd.DataFrame({
+            "time": ["100530", "100615"],
+            "price": [10.00, 10.00],
+            "vol": [10000, 500],
+            "buyorsell": [1, 0],
+            "num": [1, 2],
+        })
+
+        mock_client = MagicMock()
+        mock_client.transaction.return_value = mock_txn
+
+        with patch("mootdx.quotes.Quotes.factory", return_value=mock_client), \
+             patch("sundial.db.save_big_orders") as mock_save:
+            from sundial.main import _collect_big_orders_from_pool
+            _collect_big_orders_from_pool({"600578": {}})
+
+            assert mock_save.call_count == 1
+            code, orders = mock_save.call_args[0]
+            assert code == "600578"
+            assert len(orders) == 1
+            assert orders[0]["vol"] == 10000
+            assert orders[0]["side"] == "卖出"
+

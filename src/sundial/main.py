@@ -71,8 +71,10 @@ def _start_scheduler():
     scheduler.add_job(collect, "cron", minute=0, id="hot_rank_hourly")
     # 盘后同步账户（交易日 15:05）
     scheduler.add_job(_sync_account, "cron", hour=15, minute=5, day_of_week="mon-fri", id="account_sync_daily")
+    # 大单采集（每30秒，仅交易时段）
+    scheduler.add_job(_collect_big_orders_job, "interval", seconds=30, id="big_order_collector")
     scheduler.start()
-    print("[scheduler] 热榜采集定时器已启动（每小时整点）+ 账户同步（工作日15:05）", flush=True)
+    print("[scheduler] 热榜采集定时器已启动（每小时整点）+ 账户同步（工作日15:05）+ 大单采集（30秒）", flush=True)
 
 
 def _sync_account():
@@ -83,6 +85,36 @@ def _sync_account():
         print("[scheduler] 账户同步完成", flush=True)
     except Exception as e:
         print(f"[scheduler] 账户同步失败: {e}", flush=True)
+
+
+def _is_trading_time() -> bool:
+    """当前是否在 A 股交易时段（Mon-Fri 09:30-11:30, 13:00-15:00）"""
+    from datetime import datetime
+    now = datetime.now()
+    if now.weekday() >= 5:
+        return False
+    t = now.hour * 100 + now.minute
+    return (930 <= t <= 1130) or (1300 <= t <= 1500)
+
+
+def _collect_big_orders_job():
+    """每30秒采集热榜池全部股票大单 → SQLite（仅交易时段）"""
+    if not _is_trading_time():
+        return
+    import asyncio
+    from datetime import date
+    loop = asyncio.new_event_loop()
+    try:
+        from .services.dashboard import _build_hot_list, _collect_hotlist_pool
+        hot_list = loop.run_until_complete(_build_hot_list(date.today().isoformat()))
+        if hot_list:
+            pool = _collect_hotlist_pool(hot_list)
+            if pool:
+                _collect_big_orders_from_pool(pool)
+    except Exception as e:
+        print(f"[scheduler] 大单采集失败: {e}", flush=True)
+    finally:
+        loop.close()
 
 
 @app.on_event("startup")
@@ -228,37 +260,65 @@ async def _fetch_intraday(code: str) -> list:
 
 
 async def _fetch_big_orders(code: str) -> list:
-    """mootdx 逐笔成交 → 筛选 ≥1000万大单"""
-    from mootdx.quotes import Quotes
+    """从 SQLite 读取当日大单（由 APScheduler 盘中采集）"""
+    from datetime import date
+    from .db import get_big_orders
     try:
-        client = Quotes.factory(market="std")
-        df = client.transaction(symbol=code, start=0, offset=50)
+        rows = get_big_orders(date.today().isoformat(), code)
     except Exception:
         return []
-    if df is None or len(df) == 0:
-        return []
+    # 转换字段名以匹配前端期望：vol→volume, amount 改为格式化字符串
+    return [
+        {
+            "time": r["time"],
+            "side": r["side"],
+            "volume": r["vol"],
+            "amount": f"{r['amount']/10000:.0f}万",
+            "price": r["price"],
+        }
+        for r in rows
+    ]
 
-    BIG_ORDER_AMOUNT = 10_000_000  # 1000万
-    orders = []
-    for _, row in df.iterrows():
+
+def _collect_big_orders_from_pool(pool: dict):
+    """从股票池采集大单 → SQLite（由 APScheduler 定时调用）"""
+    from mootdx.quotes import Quotes
+    from .db import save_big_orders
+
+    BIG_ORDER_AMOUNT = 10_000_000
+    client = Quotes.factory(market="std")
+
+    for code in pool:
         try:
-            vol = int(row.get("vol", 0) or 0)
-            price = float(row.get("price", 0) or 0)
-            amount = vol * price * 100  # vol=手，×100=股，×price=金额
-            if amount < BIG_ORDER_AMOUNT:
-                continue
-            buyorsell = int(row.get("buyorsell", 2) or 2)
-            side = "卖出" if buyorsell == 1 else ("买入" if buyorsell == 0 else "中性")
-            orders.append({
-                "time": str(row.get("time", "")),
-                "side": side,
-                "volume": vol,
-                "amount": f"{amount/10000:.0f}万",
-                "price": price,
-            })
-        except (ValueError, TypeError):
+            df = client.transaction(symbol=code, start=0, offset=200)
+        except Exception:
             continue
-    return orders
+        if df is None or len(df) == 0:
+            continue
+
+        orders = []
+        for _, row in df.iterrows():
+            try:
+                vol = int(row.get("vol", 0) or 0)
+                price = float(row.get("price", 0) or 0)
+                amount = vol * price * 100
+                if amount < BIG_ORDER_AMOUNT:
+                    continue
+                buyorsell = int(row.get("buyorsell", 2) or 2)
+                side = "卖出" if buyorsell == 1 else ("买入" if buyorsell == 0 else "中性")
+                orders.append({
+                    "time": str(row.get("time", "")),
+                    "side": side,
+                    "vol": vol,
+                    "amount": amount,
+                    "price": price,
+                    "buyorsell": buyorsell,
+                })
+            except (ValueError, TypeError):
+                continue
+
+        if orders:
+            save_big_orders(code, orders)
 
 
 @app.post("/api/account/save")

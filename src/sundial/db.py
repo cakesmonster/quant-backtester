@@ -48,6 +48,18 @@ def init_db():
                 daily_pnl REAL,
                 holdings TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS big_order_snapshot (
+                date TEXT NOT NULL,
+                code TEXT NOT NULL,
+                time TEXT NOT NULL,
+                price REAL,
+                vol INTEGER,
+                amount REAL,
+                side TEXT,
+                buyorsell INTEGER,
+                PRIMARY KEY (date, code, time, vol, price)
+            );
         """)
 
 
@@ -81,3 +93,33 @@ def get_hot_rank(target_date: str, slot: str) -> list[dict]:
             (target_date, slot),
         ).fetchall()
     return [dict(zip(["rank","code","name","heat_value","concept_tag","is_limit_up","change_pct"], r)) for r in rows]
+
+
+# ── 大单异动 ──
+
+def save_big_orders(code: str, orders: list[dict]):
+    """保存大单到快照表。orders: [{time, price, vol, amount, side, buyorsell}]"""
+    from datetime import date
+    today = date.today().isoformat()
+    with db_session() as conn:
+        for o in orders:
+            conn.execute(
+                """INSERT OR IGNORE INTO big_order_snapshot
+                   (date, code, time, price, vol, amount, side, buyorsell)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (today, code,
+                 o["time"], o["price"], o["vol"], o["amount"],
+                 o["side"], o.get("buyorsell")),
+            )
+
+
+def get_big_orders(target_date: str, code: str) -> list[dict]:
+    """查询某日某股的大单，按时间正序"""
+    with db_session() as conn:
+        rows = conn.execute(
+            "SELECT code, time, price, vol, amount, side FROM big_order_snapshot "
+            "WHERE date=? AND code=? ORDER BY time",
+            (target_date, code),
+        ).fetchall()
+    cols = ["code", "time", "price", "vol", "amount", "side"]
+    return [dict(zip(cols, r)) for r in rows]
