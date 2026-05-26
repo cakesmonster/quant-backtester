@@ -604,6 +604,8 @@ def _build_teammates(hot_list: dict, ladder: dict = None) -> dict:
                         continue
                     try:
                         r = np.corrcoef(a_win, b_win)[0, 1]
+                        if np.isnan(r):
+                            continue
                     except Exception:
                         continue
                     if abs(r) > abs(best_r):
