@@ -3,18 +3,17 @@
     <div class="card-head">
       <div>
         <h2 class="card-title">热榜</h2>
-        <p class="card-subtitle">按时段查看热度变化，涨停股可直达个股分析</p>
+        <p class="card-subtitle">选择日期和时段查看历史热榜</p>
       </div>
       <div class="controls">
         <input id="hot-date" type="date" />
-        <div id="hot-period-tabs" class="inline-tabs" role="tablist" aria-label="时段选择">
-          <button class="tab-btn is-active" data-period="12:00" type="button">12:00</button>
-          <button class="tab-btn" data-period="15:00" type="button">15:00</button>
-          <button class="tab-btn" data-period="21:00" type="button">21:00</button>
-        </div>
+        <select id="hot-hour" aria-label="选择小时"></select>
+        <span class="hour-suffix">:00</span>
+        <button id="hot-now" class="btn-ghost" type="button">当前</button>
       </div>
     </div>
     <div class="card-body">
+      <div id="hot-empty" style="display:none;padding:32px;text-align:center;color:var(--muted)">该时段暂无热榜数据</div>
       <div class="table-wrap">
         <table>
           <thead>

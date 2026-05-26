@@ -533,6 +533,16 @@ select {
   padding: 0 12px;
 }
 
+#hot-hour {
+  width: 72px;
+}
+
+.hour-suffix {
+  color: var(--muted);
+  font-size: 13px;
+  margin-left: -4px;
+}
+
 input::placeholder {
   color: var(--muted);
 }

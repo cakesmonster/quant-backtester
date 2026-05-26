@@ -85,14 +85,22 @@ def save_hot_rank(slot: str, items: list[dict]):
 
 
 def get_hot_rank(target_date: str, slot: str) -> list[dict]:
-    """查询某日某时段热榜"""
+    """查询某日某时段热榜，兼容 HH:MM / HHMM 两种 slot 格式"""
+    candidates = [slot]
+    if ":" in slot:
+        candidates.append(slot.replace(":", ""))
+    elif len(slot) == 4:
+        candidates.append(f"{slot[:2]}:{slot[2:]}")
     with db_session() as conn:
-        rows = conn.execute(
-            "SELECT rank, code, name, heat_value, concept_tag, is_limit_up, change_pct "
-            "FROM hot_rank_snapshot WHERE date=? AND slot=? ORDER BY rank",
-            (target_date, slot),
-        ).fetchall()
-    return [dict(zip(["rank","code","name","heat_value","concept_tag","is_limit_up","change_pct"], r)) for r in rows]
+        for fmt in candidates:
+            rows = conn.execute(
+                "SELECT rank, code, name, heat_value, concept_tag, is_limit_up, change_pct "
+                "FROM hot_rank_snapshot WHERE date=? AND slot=? ORDER BY rank",
+                (target_date, fmt),
+            ).fetchall()
+            if rows:
+                return [dict(zip(["rank","code","name","heat_value","concept_tag","is_limit_up","change_pct"], r)) for r in rows]
+    return []
 
 
 # ── 大单异动 ──

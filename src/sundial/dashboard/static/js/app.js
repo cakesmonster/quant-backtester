@@ -602,82 +602,113 @@
   function pulseRealtimeBars() {} // disabled
 
   function renderHotList() {
-    const hot = state.data.hotList;
     const dateInput = document.getElementById('hot-date');
-    const periodTabs = document.getElementById('hot-period-tabs');
+    const hourSelect = document.getElementById('hot-hour');
+    const nowBtn = document.getElementById('hot-now');
     const hotBody = document.getElementById('hot-body');
+    const hotEmpty = document.getElementById('hot-empty');
 
-    let activePeriod = hot.defaultPeriod;
+    // 填充小时下拉 00-23
+    for (let h = 0; h < 24; h++) {
+      const opt = document.createElement('option');
+      const val = String(h).padStart(2, '0');
+      opt.value = val;
+      opt.textContent = val;
+      hourSelect.appendChild(opt);
+    }
 
-    function draw(date, period) {
-      const day = hot.byDate[date] || hot.byDate[state.data.meta.today];
-      const rows = day.periods[period] || day.periods[hot.defaultPeriod];
-      const maxHeat = Math.max(1, ...rows.map((r) => r.heat));
+    const now = new Date();
+    const currentHour = String(now.getHours()).padStart(2, '0');
 
-      hotBody.innerHTML = rows
-        .map((r) => {
-          const rowClass = r.limitUp ? 'limit-up-row' : '';
-          const conceptTags = r.concepts.map((c) => `<span class="tag">${c}</span>`).join('');
-          const heatWidth = (r.heat / maxHeat) * 100;
-          return `<tr class="${rowClass}" data-stock-code="${r.code}">
+    dateInput.value = (state.data && state.data.meta && state.data.meta.today) || now.toISOString().slice(0, 10);
+    dateInput.min = (state.data && state.data.meta && state.data.meta.historyRange && state.data.meta.historyRange.from) || '2024-01-01';
+    dateInput.max = now.toISOString().slice(0, 10);
+    hourSelect.value = currentHour;
+
+    async function load(date, hour) {
+      const slot = `${hour}:00`;
+      hotBody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px">加载中...</td></tr>';
+      if (hotEmpty) hotEmpty.style.display = 'none';
+
+      try {
+        const resp = await fetch(`/api/hotrank?date=${encodeURIComponent(date)}&slot=${encodeURIComponent(slot)}`);
+        const data = await resp.json();
+        const raw = data.items || [];
+
+        if (raw.length === 0) {
+          hotBody.innerHTML = '';
+          if (hotEmpty) hotEmpty.style.display = 'block';
+          return;
+        }
+
+        const maxHeat = Math.max(1, ...raw.map(x => x.heat_value || 0));
+
+        hotBody.innerHTML = raw.map((r) => {
+          const rowClass = r.is_limit_up ? 'limit-up-row' : '';
+          const concepts = (r.concept_tag || '').split(';').filter(Boolean);
+          const conceptTags = concepts.map(c => `<span class="tag">${escapeHtml(c)}</span>`).join('');
+          const heatWidth = ((r.heat_value || 0) / maxHeat) * 100;
+          const code = r.code || '';
+          const name = r.name || '';
+          const changePct = r.change_pct || 0;
+
+          return `<tr class="${rowClass}" data-stock-code="${code}">
             <td class="right">${r.rank}</td>
-            <td class="mono">${r.code}</td>
-            <td><span class="hoverable-stock" data-stock-code="${r.code}">${r.name}</span></td>
+            <td class="mono">${code}</td>
+            <td><span class="hoverable-stock" data-stock-code="${code}">${escapeHtml(name)}</span></td>
             <td class="right mono heat-cell">
-              <div class="heat-meta"><span>${r.heat.toFixed(1)}</span></div>
+              <div class="heat-meta"><span>${(r.heat_value || 0).toFixed(1)}</span></div>
               <div class="heat-rail"><div class="heat-fill" style="width:${heatWidth.toFixed(1)}%"></div></div>
             </td>
             <td>${conceptTags}</td>
-            <td class="right">${formatTrendHtml(r.changePct)}</td>
-            <td><button class="btn-ghost teammate-trigger" type="button" data-stock-code="${r.code}">找队友</button></td>
+            <td class="right">${formatTrendHtml(changePct)}</td>
+            <td><button class="btn-ghost teammate-trigger" type="button" data-stock-code="${code}">找队友</button></td>
           </tr>`;
-        })
-        .join('');
+        }).join('');
 
-      hotBody.querySelectorAll('tr').forEach((tr) => {
-        tr.addEventListener('click', (event) => {
-          const code = tr.dataset.stockCode;
-          if (!code) return;
-          const isButton = event.target instanceof Element && event.target.closest('.teammate-trigger');
-          if (isButton) return;
-          const row = (day.periods[period] || []).find((x) => x.code === code);
-          if (row && row.limitUp) {
-            state.currentStockCode = code;
+        // 行点击 → 涨停股跳转个股分析
+        hotBody.querySelectorAll('tr').forEach((tr) => {
+          tr.addEventListener('click', (event) => {
+            const code = tr.dataset.stockCode;
+            if (!code) return;
+            const isButton = event.target instanceof Element && event.target.closest('.teammate-trigger');
+            if (isButton) return;
+            const row = raw.find(x => x.code === code);
+            if (row && row.is_limit_up) {
+              state.currentStockCode = code;
+              renderPage('stock-analysis');
+            }
+          });
+        });
+
+        // 找队友按钮
+        hotBody.querySelectorAll('.teammate-trigger').forEach((btn) => {
+          btn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            state.currentStockCode = btn.getAttribute('data-stock-code');
             renderPage('stock-analysis');
-          }
+          });
         });
-      });
 
-      hotBody.querySelectorAll('.teammate-trigger').forEach((btn) => {
-        btn.addEventListener('click', (event) => {
-          event.stopPropagation();
-          state.currentStockCode = btn.getAttribute('data-stock-code');
-          renderPage('stock-analysis');
-        });
-      });
-
-      attachStockHoverHandlers();
-      attachSortableTables();
+        attachStockHoverHandlers();
+        attachSortableTables();
+      } catch (e) {
+        hotBody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--negative)">加载失败</td></tr>';
+      }
     }
 
-    function setPeriod(period) {
-      activePeriod = period;
-      periodTabs.querySelectorAll('.tab-btn').forEach((btn) => {
-        btn.classList.toggle('is-active', btn.getAttribute('data-period') === period);
-      });
-      draw(dateInput.value, period);
-    }
+    dateInput.addEventListener('change', () => load(dateInput.value, hourSelect.value));
+    hourSelect.addEventListener('change', () => load(dateInput.value, hourSelect.value));
 
-    periodTabs.querySelectorAll('.tab-btn').forEach((btn) => {
-      btn.addEventListener('click', () => setPeriod(btn.getAttribute('data-period')));
+    nowBtn.addEventListener('click', () => {
+      const n = new Date();
+      dateInput.value = n.toISOString().slice(0, 10);
+      hourSelect.value = String(n.getHours()).padStart(2, '0');
+      load(dateInput.value, hourSelect.value);
     });
 
-    dateInput.value = state.data.meta.today;
-    dateInput.min = state.data.meta.historyRange.from;
-    dateInput.max = state.data.meta.historyRange.to;
-    dateInput.addEventListener('change', () => draw(dateInput.value, activePeriod));
-
-    setPeriod(activePeriod);
+    // 初始加载
+    load(dateInput.value, hourSelect.value);
   }
 
 
