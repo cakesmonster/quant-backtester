@@ -80,7 +80,7 @@ sundial/
 | 热榜 | `/hotrank` | 同花顺一小时热股榜（11:30 / 15:00 / 21:00） |
 | 个股分析 | `/stock` | 日K + 分时图 + 找队友（分时图互相关） |
 | 策略回测 | `/backtest` | 6个内置策略 + 自定义策略热加载 |
-| 模拟账户 | `/account` | 同花顺模拟盘资产/持仓 |
+|| 模拟账户 | `/account` | 同花顺模拟盘资产/持仓/收益趋势/成交记录/资金流 |
 
 ---
 
@@ -156,7 +156,7 @@ sudo systemctl enable --now sundial
 ```ini
 [Service]
 WorkingDirectory=/root/.hermes/projects/sundial
-ExecStart=/usr/local/lib/hermes-agent/venv/bin/python3 -m uvicorn sundial.main:app --host 0.0.0.0 --port 8100
+ExecStart=/usr/local/lib/hermes-agent/venv/bin/python3 -m uvicorn sundial.main:app --host 127.0.0.1 --port 8100
 MemoryMax=600M
 CPUQuota=60%
 ```
@@ -218,7 +218,7 @@ THS_TRADE_API=http://trade.10jqka.com.cn:8088
 ### sundial/config.py
 
 ```python
-HOST = os.environ.get("SUNDIAL_HOST", "0.0.0.0")
+HOST = os.environ.get("SUNDIAL_HOST", "127.0.0.1")
 PORT = int(os.environ.get("SUNDIAL_PORT", "8100"))
 ```
 
@@ -309,8 +309,9 @@ class MyStrategy(BaseStrategy):
 ### SQLite
 
 `src/data/sundial.db`：
-- `hot_rank_snapshot` — 热榜快照（每小时采集）
-- `account_snapshot` — 模拟账户快照（盘后同步）
+- `hot_rank_snapshot` — 热榜快照（每小时采集，盘中实时）
+- `account_snapshot` — 模拟账户快照（盘中每10分钟 + 盘后15:05同步）
+- `trade_record` — 成交记录（monitor 买入/卖出自动写入）
 
 ---
 
