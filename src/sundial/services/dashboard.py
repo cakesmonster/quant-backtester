@@ -401,10 +401,29 @@ def _build_paper_account() -> dict:
 
     snaps = {}
     with db_session() as conn:
+        # 账户快照
         rows = conn.execute(
             "SELECT date, total_asset, available_cash, position_value, daily_pnl, holdings"
             " FROM account_snapshot ORDER BY date DESC LIMIT 10"
         ).fetchall()
+
+        # 成交记录
+        try:
+            trade_rows = conn.execute(
+                "SELECT date, time, code, name, direction, price, quantity, amount, reason, pnl"
+                " FROM trade_record ORDER BY date DESC, time DESC LIMIT 50"
+            ).fetchall()
+        except Exception:
+            trade_rows = []
+
+    # 构建 trades
+    all_trades = []
+    for tr in trade_rows:
+        all_trades.append({
+            "date": tr[0], "time": tr[1], "code": tr[2], "name": tr[3],
+            "direction": "买入" if tr[4] == "B" else "卖出",
+            "price": float(tr[5]), "qty": int(tr[6]), "amount": float(tr[7]), "reason": tr[8] or "",
+        })
 
     for row in rows:
         d = row[0]
@@ -417,6 +436,38 @@ def _build_paper_account() -> dict:
         except (json.JSONDecodeError, TypeError):
             holdings = []
 
+        # 当天成交
+        day_trades = [t for t in all_trades if t["date"] == d]
+
+        # 收益趋势：当天有多个快照时用 multiple；目前只有1个快照时至少给2个点
+        hourly_snaps = []
+        for dr in rows:
+            if dr[0] == d:
+                hourly_snaps.append(dr)
+        if len(hourly_snaps) >= 2:
+            asset_curve = [{"time": f"{r[0]} {r[0]}", "value": (r[1] or 0) / 10000} for r in reversed(hourly_snaps)]
+        else:
+            # 先用前一日收盘做起点，当日为终点
+            prev_row = None
+            for dr in rows:
+                if dr[0] < d:
+                    prev_row = dr
+                    break
+            asset_curve = []
+            if prev_row:
+                asset_curve.append({"time": prev_row[0], "value": (prev_row[1] or 0) / 10000})
+            asset_curve.append({"time": d, "value": total / 10000})
+
+        # 资金流（从 trades 构建）
+        flow_timeline = []
+        for t in reversed(day_trades):
+            flow_val = float(t["amount"]) / 10000
+            flow_timeline.append({
+                "time": t["time"],
+                "inflow": flow_val if t["direction"] == "买入" else 0,
+                "outflow": flow_val if t["direction"] == "卖出" else 0,
+            })
+
         snaps[d] = {
             "metrics": [
                 {"label": "总资产", "value": total, "valueText": f"{total/10000:.1f}万", "hint": ""},
@@ -424,7 +475,10 @@ def _build_paper_account() -> dict:
                 {"label": "持仓市值", "value": pos_val, "valueText": f"{pos_val/10000:.1f}万", "hint": ""},
                 {"label": "今日盈亏", "value": pnl, "valueText": f"{pnl:+.0f}", "hint": ""},
             ],
-            "assetCurve": [{"time": d, "value": total / 10000}],
+            "assetCurve": asset_curve,
+            "pnlTimeline": [{"time": p[0], "value": p[1]} for p in
+                [("开盘", 0)] + [("收盘", pnl / 10000)]],  # placeholder
+            "flowTimeline": flow_timeline,
             "positions": [
                 {
                     "code": h.get("code", ""),
@@ -438,7 +492,7 @@ def _build_paper_account() -> dict:
                 }
                 for h in holdings
             ],
-            "trades": [],
+            "trades": day_trades,
         }
 
     return {"byDate": snaps}

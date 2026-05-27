@@ -101,16 +101,39 @@ def fetch_positions() -> list[dict]:
 
 
 def sync_to_db():
-    """同步账户数据到 sundial SQLite"""
-    import sys
+    """同步账户数据到 sundial SQLite。合并 THS API + monitor state。"""
+    import sys, os
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
     from sundial.db import db_session, init_db
 
     init_db()
     acct = fetch_account()
-    positions = fetch_positions()
+    ths_positions = fetch_positions()
     today = date.today().isoformat()
+
+    # 合并 monitor state 中的当日买入（THS 可能未结算）
+    state_path = os.path.expanduser(f"~/.hermes/data/trading/logs/{today.replace('-', '')}/state.json")
+    monitor_held = {}
+    try:
+        with open(state_path) as f:
+            state = json.load(f)
+        monitor_held = state.get("holdings", {})
+    except Exception:
+        pass
+
+    # 合并：THS 持仓优先，monitor 补当日新买入
+    positions = {p["code"]: p for p in ths_positions}
+    for code, h in monitor_held.items():
+        if code not in positions:
+            positions[code] = {
+                "code": code, "name": code, "shares": h.get("shares", 0),
+                "cost": h.get("cost", 0), "price": h.get("cost", 0),
+                "pnl": 0, "pnlPct": 0,
+            }
+
+    pos_value = sum(p["price"] * p["shares"] for p in positions.values())
+    pos_list = list(positions.values())
 
     with db_session() as conn:
         conn.execute(
@@ -118,8 +141,8 @@ def sync_to_db():
             (today,
              acct.get("total_asset", 0),
              acct.get("available_cash", 0),
-             acct.get("position_value", 0),
+             pos_value,
              acct.get("daily_pnl", 0),
-             json.dumps(positions, ensure_ascii=False)),
+             json.dumps(pos_list, ensure_ascii=False)),
         )
-    return {"status": "ok", "account": acct, "positions": positions}
+    return {"status": "ok", "account": acct, "positions": pos_list}

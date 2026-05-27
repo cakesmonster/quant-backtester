@@ -69,6 +69,8 @@ def _start_scheduler():
 
     scheduler = BackgroundScheduler()
     scheduler.add_job(collect, "cron", minute=0, id="hot_rank_hourly")
+    # 盘中每10分钟同步账户（交易日 09:30-15:00 每10分钟）
+    scheduler.add_job(_sync_account, "cron", minute="0,10,20,30,40,50", hour="9-14", day_of_week="mon-fri", id="account_sync_intraday")
     # 盘后同步账户（交易日 15:05）
     scheduler.add_job(_sync_account, "cron", hour=15, minute=5, day_of_week="mon-fri", id="account_sync_daily")
     # 大单采集（每30秒，仅交易时段）
