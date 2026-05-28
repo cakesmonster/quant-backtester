@@ -167,6 +167,56 @@ async def api_dashboard(date: str = Query(None), code: str = Query(None)):
     return Response(content=json.dumps(data, ensure_ascii=False), media_type="application/json; charset=utf-8")
 
 
+# ── 分页 API：按页面拆分数据，减少首屏负载 ──
+
+@app.get("/api/shared")
+async def api_shared():
+    """meta + marketTape + stockMeta — 所有页面共用"""
+    from .services.dashboard import _cached_build
+    full = await _cached_build()
+    return Response(content=json.dumps({
+        "meta": full["meta"],
+        "marketTape": full["marketTape"],
+        "stockMeta": full["stockMeta"],
+    }, ensure_ascii=False), media_type="application/json; charset=utf-8")
+
+
+@app.get("/api/page/daily-replay")
+async def api_page_daily_replay():
+    from .services.dashboard import _cached_build
+    full = await _cached_build()
+    return Response(content=json.dumps({
+        "dailyReplay": full["dailyReplay"],
+    }, ensure_ascii=False), media_type="application/json; charset=utf-8")
+
+
+@app.get("/api/page/stock-analysis")
+async def api_page_stock_analysis():
+    from .services.dashboard import _cached_build
+    full = await _cached_build()
+    return Response(content=json.dumps({
+        "stockAnalysis": full["stockAnalysis"],
+    }, ensure_ascii=False), media_type="application/json; charset=utf-8")
+
+
+@app.get("/api/page/strategy-backtest")
+async def api_page_strategy_backtest():
+    from .services.dashboard import _cached_build
+    full = await _cached_build()
+    return Response(content=json.dumps({
+        "strategyBacktest": full["strategyBacktest"],
+    }, ensure_ascii=False), media_type="application/json; charset=utf-8")
+
+
+@app.get("/api/page/paper-account")
+async def api_page_paper_account():
+    from .services.dashboard import _cached_build
+    full = await _cached_build()
+    return Response(content=json.dumps({
+        "paperAccount": full["paperAccount"],
+    }, ensure_ascii=False), media_type="application/json; charset=utf-8")
+
+
 @app.get("/api/review")
 async def api_review(date: str = Query(None)):
     from .services.sentiment import compute_sentiment

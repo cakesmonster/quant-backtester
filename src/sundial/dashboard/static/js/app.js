@@ -96,12 +96,27 @@
     return `<div class="card"><div class="card-body"><div class="skeleton-grid">${rows}</div></div></div>`;
   }
 
-  async function loadData() {
-    const res = await fetch('/api/dashboard', { cache: 'no-store' });
-    if (!res.ok) throw new Error('无法获取数据');
+  async function loadShared() {
+    const res = await fetch('/api/shared', { cache: 'no-store' });
+    if (!res.ok) throw new Error('无法获取共享数据');
     state.data = await res.json();
-    state.currentStockCode = state.data.stockAnalysis.defaultCode;
     el.updatedAt.textContent = state.data.meta.updatedAt;
+  }
+
+  const PAGE_API = {
+    'daily-replay': '/api/page/daily-replay',
+    'stock-analysis': '/api/page/stock-analysis',
+    'strategy-backtest': '/api/page/strategy-backtest',
+    'paper-account': '/api/page/paper-account',
+  };
+
+  async function loadPageData(pageId) {
+    const url = PAGE_API[pageId];
+    if (!url) return;
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`无法加载页面数据: ${pageId}`);
+    const pageData = await res.json();
+    Object.assign(state.data, pageData);
   }
 
   function initMarketTape() {
@@ -198,6 +213,7 @@
     el.pageHost.innerHTML = createSkeleton(8);
     const template = await loadPageTemplate(pageId);
     el.pageHost.innerHTML = template;
+    await loadPageData(pageId);
     runPageRenderer(pageId);
     if (options.pushHistory) pushPageHash(pageId);
   }
@@ -467,7 +483,6 @@
     const auctionWrap = document.getElementById('auction-wrap');
     const auctionBody = document.getElementById('auction-body');
     const ladderWrap = document.getElementById('ladder-wrap');
-    const eliminatedWrap = document.getElementById('eliminated-wrap');
     const sectorUp = document.getElementById('sector-up');
     const sectorDown = document.getElementById('sector-down');
     const sectorSummary = document.getElementById('sector-summary');
@@ -562,19 +577,6 @@
             <div class="stock-chip-wrap">${chips}</div>
           </section>`;
         })
-        .join('');
-
-      eliminatedWrap.innerHTML = day.eliminated
-        .map(
-          (stock) => `<button class="stock-chip eliminated hoverable-stock" data-stock-code="${stock.code}" type="button">
-            <div class="stock-code">${stock.code}</div>
-            <div class="stock-name">${stock.name}</div>
-            <div class="stock-meta">
-              <span class="tag loss">淘汰</span>
-              <span class="${stock.changePct > 0 ? 'price-up' : 'price-down'}">${formatTrendHtml(stock.changePct)}</span>
-            </div>
-          </button>`
-        )
         .join('');
 
       const maxUp = Math.max(...day.sectorAttack.leaders.map((x) => x.changePct));
@@ -1196,7 +1198,7 @@
     }
 
     async function renderTeammates(code) {
-      let source = state.data.teammates[code];
+      let source = (state.data.teammates && state.data.teammates[code]) || null;
       // 不在热榜缓存中 → 实时查询
       if (!source) {
         try {
@@ -1206,6 +1208,7 @@
           if (mates.length > 0) {
             source = { byConcept: mates, byTrend: mates };
             // 缓存到 state，避免重复请求
+            if (!state.data.teammates) state.data.teammates = {};
             state.data.teammates[code] = source;
           }
         } catch (e) {
@@ -1896,7 +1899,7 @@
   async function bootstrap() {
     try {
       bindGlobalEvents();
-      await loadData();
+      await loadShared();
       initMarketTape();
       const page = getInitialPage();
       await renderPage(page, { pushHistory: false });

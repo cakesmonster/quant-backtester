@@ -3,9 +3,26 @@
 """
 import asyncio
 import json
+import time
 from datetime import date, datetime, timedelta
 
 DATE_FMT = "%Y%m%d"
+
+# ── TTL 缓存 ──
+_DASHBOARD_CACHE = None
+_DASHBOARD_CACHE_TS = 0
+_CACHE_TTL = 30  # 秒
+
+
+async def _cached_build(target_date: str = None, stock_code: str = None) -> dict:
+    """带 TTL 缓存的 build_dashboard，同 30 秒内复用。"""
+    global _DASHBOARD_CACHE, _DASHBOARD_CACHE_TS
+    now = time.time()
+    if _DASHBOARD_CACHE is not None and (now - _DASHBOARD_CACHE_TS) < _CACHE_TTL:
+        return _DASHBOARD_CACHE
+    _DASHBOARD_CACHE = await build_dashboard(target_date, stock_code)
+    _DASHBOARD_CACHE_TS = now
+    return _DASHBOARD_CACHE
 
 # ── 板块数据增强 ──
 SECTOR_MAP_PATH = "/root/.hermes/projects/sundial/data/cache/stock_sector_map.json"
@@ -50,12 +67,11 @@ async def build_dashboard(target_date: str = None, stock_code: str = None) -> di
 
     # ── 并发获取核心数据 ──
     from .sentiment import compute_sentiment
-    from .ladder import compute_ladder, compute_yesterday_performance, compute_eliminated
-    sentiment, ladder, yday_perf, eliminated = await asyncio.gather(
+    from .ladder import compute_ladder, compute_yesterday_performance
+    sentiment, ladder, yday_perf = await asyncio.gather(
         compute_sentiment(d),
         compute_ladder(d),
         compute_yesterday_performance(d),
-        compute_eliminated(d),
     )
 
     # ── meta ──
@@ -69,7 +85,7 @@ async def build_dashboard(target_date: str = None, stock_code: str = None) -> di
     }
 
     # ── dailyReplay ──
-    daily_replay = _build_daily_replay(sentiment, ladder, yday_perf, eliminated, iso)
+    daily_replay = _build_daily_replay(sentiment, ladder, yday_perf, iso)
 
     # ── hotList ──
     hot_list = await _build_hot_list(iso)
@@ -119,7 +135,7 @@ async def build_dashboard(target_date: str = None, stock_code: str = None) -> di
 # dailyReplay
 # ═══════════════════════════════════════════════════════════════
 
-def _build_daily_replay(sentiment: dict, ladder: dict, yday_perf: dict, eliminated: list, date_key: str) -> dict:
+def _build_daily_replay(sentiment: dict, ladder: dict, yday_perf: dict, date_key: str) -> dict:
     limit = sentiment.get("limit", {})
     up_count = limit.get("up_count", 0)
     down_count = limit.get("down_count", 0)
@@ -177,12 +193,6 @@ def _build_daily_replay(sentiment: dict, ladder: dict, yday_perf: dict, eliminat
                 "yesterdayLimitUpPerformance": yesterday_limit_up_performance,
                 "auctionMoves": [],
                 "ladder": ladder_list,
-                "eliminated": [{
-                    "code": e["code"],
-                    "name": e["name"],
-                    "sector": e.get("sector", ""),
-                    "changePct": e.get("changePct", 0),
-                } for e in eliminated],
                 "sectorAttack": sector_attack,
             }
         }

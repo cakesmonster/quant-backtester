@@ -554,15 +554,6 @@ input:focus-visible, select:focus-visible, button:focus-visible,
 .stock-meta .price-up   { color: var(--positive); }
 .stock-meta .price-down { color: var(--negative); }
 
-/* eliminated stock chips */
-.stock-chip.eliminated {
-  opacity: 0.7;
-  background: var(--bg-soft);
-  border-style: dashed;
-}
-#eliminated-wrap.stock-chip-wrap { grid-template-columns: 1fr; gap: 10px; }
-#eliminated-wrap .stock-chip { min-height: 108px; }
-
 /* trend indicator */
 .trend {
   display: inline-flex; align-items: center; gap: 4px;
