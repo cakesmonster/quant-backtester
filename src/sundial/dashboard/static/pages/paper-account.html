@@ -3,7 +3,7 @@
     <div class="card-head">
       <div>
         <h2 class="card-title">模拟账户</h2>
-        <p class="card-subtitle">历史快照回放 · 持仓与成交联动</p>
+        <p class="card-subtitle">持仓与成交联动 · 每笔买卖配对追踪</p>
       </div>
       <div class="controls">
         <label class="section-note" for="account-date">账户日期</label>
@@ -12,17 +12,6 @@
     </div>
     <div class="card-body">
       <div id="account-metrics" class="kpi-row"></div>
-    </div>
-  </section>
-
-  <section class="card">
-    <div class="card-head">
-      <h3 class="card-title">收益趋势图</h3>
-      <p id="asset-trend-meta" class="card-subtitle">最高 / 最低点</p>
-    </div>
-    <div class="card-body chart-wrap">
-      <canvas id="asset-trend" class="canvas" aria-label="资产曲线面积图"></canvas>
-      <div class="chart-tooltip"></div>
       <div id="account-micro-bars" class="account-micro" aria-label="账户微观强度条"></div>
     </div>
   </section>
@@ -39,29 +28,56 @@
         </div>
       </div>
     </article>
+
     <article class="card">
       <div class="card-head">
-        <h3 class="card-title">当日盈亏分布</h3>
-        <p class="card-subtitle">按持仓股票</p>
+        <h3 class="card-title">今日成交</h3>
       </div>
       <div class="card-body">
-        <div class="chart-wrap">
-          <canvas id="pnl-bars" class="canvas" aria-label="盈亏分布柱图"></canvas>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="sortable">时间</th>
+                <th>代码</th>
+                <th class="sortable">方向</th>
+                <th class="right sortable">价格</th>
+                <th class="right sortable">数量</th>
+                <th class="right sortable">金额</th>
+              </tr>
+            </thead>
+            <tbody id="trade-body"></tbody>
+          </table>
         </div>
       </div>
     </article>
-    <article class="card">
-      <div class="card-head">
-        <h3 class="card-title">成交资金流</h3>
-        <p id="trade-flow-meta" class="card-subtitle">买卖净流向</p>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h3 class="card-title">历史交易记录</h3>
+      <p class="card-subtitle">每笔买入→卖出配对追踪 · 未平仓标记「持仓中」</p>
+    </div>
+    <div class="card-body">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>个股</th>
+              <th class="sortable">买入时间</th>
+              <th class="right">买入价</th>
+              <th class="right">买入股数</th>
+              <th class="sortable">卖出时间</th>
+              <th class="right">卖出价</th>
+              <th class="right">卖出股数</th>
+              <th class="right sortable">盈亏金额</th>
+              <th class="right sortable">盈亏%</th>
+            </tr>
+          </thead>
+          <tbody id="trade-pairs-body"></tbody>
+        </table>
       </div>
-      <div class="card-body">
-        <div class="chart-wrap">
-          <canvas id="trade-flow" class="canvas" aria-label="成交资金流折线图"></canvas>
-          <div class="chart-tooltip"></div>
-        </div>
-      </div>
-    </article>
+    </div>
   </section>
 
   <section class="page-grid-2">
@@ -85,29 +101,6 @@
               </tr>
             </thead>
             <tbody id="position-body"></tbody>
-          </table>
-        </div>
-      </div>
-    </article>
-
-    <article class="card">
-      <div class="card-head">
-        <h3 class="card-title">今日成交</h3>
-      </div>
-      <div class="card-body">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th class="sortable">时间</th>
-                <th>代码</th>
-                <th class="sortable">方向</th>
-                <th class="right sortable">价格</th>
-                <th class="right sortable">数量</th>
-                <th class="right sortable">金额</th>
-              </tr>
-            </thead>
-            <tbody id="trade-body"></tbody>
           </table>
         </div>
       </div>

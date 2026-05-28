@@ -407,23 +407,51 @@ def _build_paper_account() -> dict:
             " FROM account_snapshot ORDER BY date DESC LIMIT 10"
         ).fetchall()
 
-        # 成交记录
+        # 成交记录（全部历史）
         try:
             trade_rows = conn.execute(
                 "SELECT date, time, code, name, direction, price, quantity, amount, reason, pnl"
-                " FROM trade_record ORDER BY date DESC, time DESC LIMIT 50"
+                " FROM trade_record ORDER BY date ASC, time ASC"
             ).fetchall()
         except Exception:
             trade_rows = []
 
-    # 构建 trades
+    # 构建 trades — 日期格式归一化：trade_record 存 20260528 → 2026-05-28
     all_trades = []
     for tr in trade_rows:
+        raw_date = tr[0]
+        if len(raw_date) == 8 and '-' not in raw_date:
+            normalized = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+        else:
+            normalized = raw_date
         all_trades.append({
-            "date": tr[0], "time": tr[1], "code": tr[2], "name": tr[3],
+            "date": normalized, "time": tr[1], "code": tr[2], "name": tr[3],
             "direction": "买入" if tr[4] == "B" else "卖出",
             "price": float(tr[5]), "qty": int(tr[6]), "amount": float(tr[7]), "reason": tr[8] or "",
         })
+
+    # --- 构建配对交易记录（买入→卖出配对，FIFO）---
+    trade_pairs = _build_trade_pairs(all_trades)
+
+    # 补：持仓中有股票但没有买入记录（买入发生在 trade_record 表创建前）
+    paired_codes = {p["code"] for p in trade_pairs}
+    if rows:
+        try:
+            latest_holdings = json.loads(rows[0][5]) if rows[0][5] else []
+        except (json.JSONDecodeError, TypeError):
+            latest_holdings = []
+        for h in latest_holdings:
+            code = h.get("code", "")
+            if code and code not in paired_codes:
+                trade_pairs.insert(0, {
+                    "code": code,
+                    "name": h.get("name", ""),
+                    "buyDate": "—", "buyTime": "—",
+                    "buyPrice": h.get("cost", 0), "buyQty": h.get("shares", 0),
+                    "sellDate": None, "sellTime": None,
+                    "sellPrice": None, "sellQty": None,
+                    "pnl": None, "pnlPct": None,
+                })
 
     for row in rows:
         d = row[0]
@@ -495,7 +523,72 @@ def _build_paper_account() -> dict:
             "trades": day_trades,
         }
 
-    return {"byDate": snaps}
+    return {"byDate": snaps, "tradePairs": trade_pairs}
+
+
+def _build_trade_pairs(all_trades: list) -> list:
+    """FIFO 配对买入→卖出，输出每笔完整交易记录。
+
+    返回: [{code, name, buyDate, buyTime, buyPrice, buyQty,
+            sellDate, sellTime, sellPrice, sellQty, pnl, pnlPct}]
+    未平仓的 BUY 记录 sell* 字段为 null。
+    """
+    from collections import defaultdict, deque
+
+    # 按股票分组
+    by_stock = defaultdict(list)
+    for t in all_trades:
+        by_stock[t["code"]].append(t)
+
+    pairs = []
+    for code, trades in sorted(by_stock.items()):
+        buys = deque()  # 待匹配的买入队列
+        for t in sorted(trades, key=lambda x: (x["date"], x["time"])):
+            if t["direction"] == "买入":
+                buys.append(t)
+            elif t["direction"] == "卖出":
+                sell_qty = t["qty"]
+                sell_price = t["price"]
+                while sell_qty > 0 and buys:
+                    buy = buys[0]
+                    match_qty = min(buy["qty"], sell_qty)
+                    match_buy_cost = match_qty * buy["price"]
+                    match_sell_rev = match_qty * sell_price
+                    pnl_amt = match_sell_rev - match_buy_cost
+                    pnl_pct = round((pnl_amt / match_buy_cost) * 100, 2) if match_buy_cost else 0
+
+                    pairs.append({
+                        "code": code,
+                        "name": buy["name"] or t["name"] or code,
+                        "buyDate": buy["date"], "buyTime": buy["time"],
+                        "buyPrice": buy["price"], "buyQty": match_qty,
+                        "sellDate": t["date"], "sellTime": t["time"],
+                        "sellPrice": sell_price, "sellQty": match_qty,
+                        "pnl": round(pnl_amt, 2),
+                        "pnlPct": pnl_pct,
+                    })
+
+                    sell_qty -= match_qty
+                    buy["qty"] -= match_qty
+                    if buy["qty"] <= 0:
+                        buys.popleft()
+
+        # 未平仓
+        for buy in buys:
+            if buy["qty"] > 0:
+                pairs.append({
+                    "code": code,
+                    "name": buy["name"],
+                    "buyDate": buy["date"], "buyTime": buy["time"],
+                    "buyPrice": buy["price"], "buyQty": buy["qty"],
+                    "sellDate": None, "sellTime": None,
+                    "sellPrice": None, "sellQty": None,
+                    "pnl": None, "pnlPct": None,
+                })
+
+    # 按买入时间降序
+    pairs.sort(key=lambda x: (x["buyDate"] or "", x["buyTime"] or ""), reverse=True)
+    return pairs
 
 
 # ═══════════════════════════════════════════════════════════════

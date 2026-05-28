@@ -1595,12 +1595,8 @@
     const metricRow = document.getElementById('account-metrics');
     const positionBody = document.getElementById('position-body');
     const tradeBody = document.getElementById('trade-body');
-    const trendCanvas = document.getElementById('asset-trend');
-    const trendMeta = document.getElementById('asset-trend-meta');
+    const tradePairsBody = document.getElementById('trade-pairs-body');
     const positionDonut = document.getElementById('position-donut');
-    const pnlBars = document.getElementById('pnl-bars');
-    const tradeFlowCanvas = document.getElementById('trade-flow');
-    const tradeFlowMeta = document.getElementById('trade-flow-meta');
     const microBars = document.getElementById('account-micro-bars');
 
     function draw(date) {
@@ -1616,24 +1612,18 @@
         )
         .join('');
 
-      drawLineChart(trendCanvas, snap.assetCurve, {
-        stroke: cssVar('--violet', '#a78bfa'),
-        fillTop: 'rgba(167, 139, 250, 0.22)',
-        fillBottom: 'rgba(167, 139, 250, 0.04)',
-        lineWidth: 2.6
-      });
-      const high = snap.assetCurve.reduce((a, b) => (a.value > b.value ? a : b));
-      const low = snap.assetCurve.reduce((a, b) => (a.value < b.value ? a : b));
-      trendMeta.textContent = `最高 ${high.time} · ${high.value.toFixed(1)}万 / 最低 ${low.time} · ${low.value.toFixed(1)}万`;
       if (microBars) {
         const dayPnl = snap.metrics.find((x) => x.label === '今日盈亏')?.value || 0;
-        const cashRatio = ((snap.metrics.find((x) => x.label === '可用资金')?.value || 0) / Math.max(1, snap.metrics.find((x) => x.label === '总资产')?.value || 1)) * 100;
-        const positionRatio = ((snap.metrics.find((x) => x.label === '持仓市值')?.value || 0) / Math.max(1, snap.metrics.find((x) => x.label === '总资产')?.value || 1)) * 100;
+        const totalAsset = snap.metrics.find((x) => x.label === '总资产')?.value || 1;
+        const cash = snap.metrics.find((x) => x.label === '可用资金')?.value || 0;
+        const posVal = snap.metrics.find((x) => x.label === '持仓市值')?.value || 0;
+        const cashRatio = (cash / Math.max(1, totalAsset)) * 100;
+        const positionRatio = (posVal / Math.max(1, totalAsset)) * 100;
         const pnlHeat = clamp(6, Math.abs(dayPnl) * 18, 96);
         microBars.innerHTML = [
           { label: '仓位利用率', value: clamp(0, positionRatio, 100), tone: 'cyan', suffix: `${positionRatio.toFixed(1)}%` },
           { label: '现金占比', value: clamp(0, cashRatio, 100), tone: 'up', suffix: `${cashRatio.toFixed(1)}%` },
-          { label: '盈亏热度', value: pnlHeat, tone: dayPnl >= 0 ? 'up' : 'down', suffix: `${dayPnl >= 0 ? '+' : ''}${dayPnl.toFixed(2)}万` }
+          { label: '盈亏热度', value: pnlHeat, tone: dayPnl >= 0 ? 'up' : 'down', suffix: `${dayPnl >= 0 ? '+' : ''}${(dayPnl/10000).toFixed(2)}万` }
         ]
           .map(
             (x) => `<div class="account-micro-row">
@@ -1672,42 +1662,42 @@
         );
       }
 
-      if (pnlBars) {
-        drawPnlBars(
-          pnlBars,
-          snap.positions.map((p) => ({ label: p.code, value: Number(p.pnlAmt) }))
-        );
-      }
-
-      if (tradeFlowCanvas) {
-        const flowSeries = buildTradeFlowSeries(snap.trades);
-        if (flowSeries.length > 0) {
-          drawLineChart(tradeFlowCanvas, flowSeries, {
-            stroke: cssVar('--cyan', '#22d3ee'),
-            fillTop: 'rgba(34, 211, 238, 0.20)',
-            fillBottom: 'rgba(34, 211, 238, 0.03)',
-            lineWidth: 2.3
-          });
-          if (tradeFlowMeta) {
-            const end = flowSeries[flowSeries.length - 1]?.value || 0;
-            const cls = end >= 0 ? 'positive' : 'negative';
-            tradeFlowMeta.innerHTML = `<span class="${cls}">${end >= 0 ? '+' : ''}${end.toFixed(1)}万</span>（卖出回流 - 买入流出）`;
-          }
-        }
-      }
-
-      tradeBody.innerHTML = snap.trades
+      tradeBody.innerHTML = (snap.trades || [])
         .map(
           (t) => `<tr>
             <td>${t.time}</td>
             <td class="mono">${t.code}</td>
-            <td><span class="trend ${t.side === '买入' ? 'up' : 'down'}"><span class="arr">${t.side === '买入' ? '▲' : '▼'}</span></span> <span class="${t.side === '买入' ? 'positive' : 'negative'}">${t.side}</span></td>
+            <td><span class="trend ${t.direction === '买入' ? 'up' : 'down'}"><span class="arr">${t.direction === '买入' ? '▲' : '▼'}</span></span> <span class="${t.direction === '买入' ? 'positive' : 'negative'}">${t.direction}</span></td>
             <td class="right mono">${t.price.toFixed(2)}</td>
             <td class="right mono">${t.qty}</td>
-            <td class="right mono">${t.amount}</td>
+            <td class="right mono">${t.amount.toFixed(0)}</td>
           </tr>`
         )
         .join('');
+
+      // 历史交易配对记录
+      if (tradePairsBody) {
+        tradePairsBody.innerHTML = (account.tradePairs || [])
+          .map(
+            (p) => {
+              const pnlCls = p.pnl != null ? (p.pnl >= 0 ? 'positive' : 'negative') : '';
+              const pnlText = p.pnl != null ? `${p.pnl >= 0 ? '+' : ''}${p.pnl.toFixed(0)}` : '—';
+              const pnlPctText = p.pnlPct != null ? `${p.pnlPct >= 0 ? '+' : ''}${p.pnlPct.toFixed(1)}%` : '—';
+              return `<tr>
+                <td><span class="mono">${p.code}</span> ${p.name}</td>
+                <td>${p.buyDate} ${p.buyTime}</td>
+                <td class="right mono">${p.buyPrice.toFixed(2)}</td>
+                <td class="right mono">${p.buyQty}</td>
+                <td>${p.sellDate ? p.sellDate + ' ' + p.sellTime : '<span style="color:var(--muted)">持仓中</span>'}</td>
+                <td class="right mono">${p.sellPrice != null ? p.sellPrice.toFixed(2) : '—'}</td>
+                <td class="right mono">${p.sellQty != null ? p.sellQty : '—'}</td>
+                <td class="right ${pnlCls} mono">${pnlText}</td>
+                <td class="right ${pnlCls} mono">${pnlPctText}</td>
+              </tr>`;
+            }
+          )
+          .join('');
+      }
 
       attachStockHoverHandlers();
       attachSortableTables();
