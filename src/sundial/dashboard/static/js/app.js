@@ -1879,29 +1879,7 @@
         if (curveCanvas) drawMultiLineChart(curveCanvas, scenario.curves);
       }
       if (state.activePage === 'paper-account') {
-        const date = document.getElementById('account-date')?.value || state.data.meta.today;
-        const snap = state.data.paperAccount.byDate[date] || state.data.paperAccount.byDate[state.data.meta.today];
-        const trendCanvas = document.getElementById('asset-trend');
-        if (trendCanvas) {
-          drawLineChart(trendCanvas, snap.assetCurve, {
-            stroke: cssVar('--violet', '#a78bfa'),
-            fillTop: 'rgba(167, 139, 250, 0.22)',
-            fillBottom: 'rgba(167, 139, 250, 0.04)',
-            lineWidth: 2.6
-          });
-        }
-        const flowCanvas = document.getElementById('trade-flow');
-        if (flowCanvas) {
-          const flowSeries = buildTradeFlowSeries(snap.trades);
-          if (flowSeries.length > 0) {
-            drawLineChart(flowCanvas, flowSeries, {
-              stroke: cssVar('--cyan', '#22d3ee'),
-              fillTop: 'rgba(34, 211, 238, 0.20)',
-              fillBottom: 'rgba(34, 211, 238, 0.03)',
-              lineWidth: 2.3
-            });
-          }
-        }
+        // paper-account resize handled internally by canvas redraw via positionDonut
       }
     });
 
