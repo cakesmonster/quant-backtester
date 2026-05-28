@@ -23,12 +23,15 @@ def _normalize(pool: list[dict], pool_type: str) -> list[dict]:
             "sector": item.get("hybk", ""),
         }
         if pool_type in ("limit_up", "strong", "broken"):
+            zb = item.get("zttj", {}) or {}
             row.update({
                 "board_count": item.get("lbc", 1),       # 连板数
                 "first_time": item.get("fbt", ""),       # 首次封板时间
                 "last_time": item.get("lbt", ""),        # 最后封板时间
                 "broken_count": item.get("zbc", 0),      # 炸板次数
                 "seal_amount": item.get("fund", 0),      # 封板资金
+                "total_days": zb.get("days", item.get("lbc", 1)),   # 统计天数
+                "total_boards": zb.get("ct", item.get("lbc", 1)),   # 涨停次数
             })
         if pool_type == "strong":
             row["is_new_high"] = item.get("isNewHigh", False)

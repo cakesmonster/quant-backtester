@@ -2,7 +2,11 @@
   const state = {
     data: null,
     pageTemplates: new Map(),
-    activePage: 'daily-replay',
+    activePage: (() => {
+      const h = location.hash.replace('#', '').trim();
+      const known = ['daily-replay','hot-list','stock-analysis','strategy-backtest','paper-account'];
+      return known.includes(h) ? h : 'daily-replay';
+    })(),
     currentStockCode: '',
     hoveredStock: null,
     charts: new Map(),
@@ -554,7 +558,7 @@
             .join('');
 
           return `<section class="level-group">
-            <div class="level-title">${group.level}连板</div>
+            <div class="level-title">${group.level}</div>
             <div class="stock-chip-wrap">${chips}</div>
           </section>`;
         })

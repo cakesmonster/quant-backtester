@@ -150,9 +150,14 @@ def _build_daily_replay(sentiment: dict, ladder: dict, yday_perf: dict, date_key
     # ladder
     ld = ladder.get("ladder", {})
     ladder_list = []
-    for level_str, stocks in sorted(ld.items(), key=lambda x: int(x[0]), reverse=True):
+    for label, stocks in ld.items():
+        # 从 label 中提取数字用于排序（"4连板" → 4, "11天7板" → 11）
+        import re
+        m = re.match(r'(\d+)', label)
+        sort_key = int(m.group(1)) if m else 0
         ladder_list.append({
-            "level": int(level_str),
+            "level": label,
+            "sortKey": sort_key,
             "stocks": [{
                 "code": s["code"],
                 "name": s["name"],
@@ -160,6 +165,7 @@ def _build_daily_replay(sentiment: dict, ladder: dict, yday_perf: dict, date_key
                 "changePct": s.get("change_pct", 0),
             } for s in stocks[:10]],
         })
+    ladder_list.sort(key=lambda x: x["sortKey"], reverse=True)
 
     # sectorAttack — 从涨停池真实汇聚
     sector_attack = _build_sector_attack(ladder_list)
