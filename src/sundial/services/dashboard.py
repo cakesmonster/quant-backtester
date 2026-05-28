@@ -50,12 +50,12 @@ async def build_dashboard(target_date: str = None, stock_code: str = None) -> di
 
     # ── 并发获取核心数据 ──
     from .sentiment import compute_sentiment
-    from .ladder import compute_ladder, compute_yesterday_performance
-
-    sentiment, ladder, yday_perf = await asyncio.gather(
+    from .ladder import compute_ladder, compute_yesterday_performance, compute_eliminated
+    sentiment, ladder, yday_perf, eliminated = await asyncio.gather(
         compute_sentiment(d),
         compute_ladder(d),
         compute_yesterday_performance(d),
+        compute_eliminated(d),
     )
 
     # ── meta ──
@@ -69,7 +69,7 @@ async def build_dashboard(target_date: str = None, stock_code: str = None) -> di
     }
 
     # ── dailyReplay ──
-    daily_replay = _build_daily_replay(sentiment, ladder, yday_perf, iso)
+    daily_replay = _build_daily_replay(sentiment, ladder, yday_perf, eliminated, iso)
 
     # ── hotList ──
     hot_list = await _build_hot_list(iso)
@@ -119,7 +119,7 @@ async def build_dashboard(target_date: str = None, stock_code: str = None) -> di
 # dailyReplay
 # ═══════════════════════════════════════════════════════════════
 
-def _build_daily_replay(sentiment: dict, ladder: dict, yday_perf: dict, date_key: str) -> dict:
+def _build_daily_replay(sentiment: dict, ladder: dict, yday_perf: dict, eliminated: list, date_key: str) -> dict:
     limit = sentiment.get("limit", {})
     up_count = limit.get("up_count", 0)
     down_count = limit.get("down_count", 0)
@@ -177,7 +177,12 @@ def _build_daily_replay(sentiment: dict, ladder: dict, yday_perf: dict, date_key
                 "yesterdayLimitUpPerformance": yesterday_limit_up_performance,
                 "auctionMoves": [],
                 "ladder": ladder_list,
-                "eliminated": [],
+                "eliminated": [{
+                    "code": e["code"],
+                    "name": e["name"],
+                    "sector": e.get("sector", ""),
+                    "changePct": e.get("changePct", 0),
+                } for e in eliminated],
                 "sectorAttack": sector_attack,
             }
         }

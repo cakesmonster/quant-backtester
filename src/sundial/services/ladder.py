@@ -49,7 +49,7 @@ async def compute_ladder(target_date: str) -> dict:
 
 
 async def compute_yesterday_performance(target_date: str) -> dict:
-    """昨日涨停今日表现 — 需要昨日池 + 今日行情"""
+    """昨日涨停今日表现"""
     from sundial.data.eastmoney_api import fetch_yesterday_pool, fetch_limit_up_pool
     yday = await fetch_yesterday_pool(target_date)
     today = await fetch_limit_up_pool(target_date)
@@ -64,3 +64,25 @@ async def compute_yesterday_performance(target_date: str) -> dict:
         "continued": continued,
         "rate": round(continued / len(yday) * 100, 1),
     }
+
+
+async def compute_eliminated(target_date: str) -> list[dict]:
+    """淘汰区：昨日涨停但今日未涨停的股票（破板/断板）。"""
+    from sundial.data.eastmoney_api import fetch_yesterday_pool, fetch_limit_up_pool
+
+    yday_pool = await fetch_yesterday_pool(target_date)
+    today_pool = await fetch_limit_up_pool(target_date)
+    today_codes = {item["code"] for item in today_pool}
+
+    eliminated = []
+    for item in yday_pool:
+        code = item["code"]
+        if code not in today_codes:
+            eliminated.append({
+                "code": code,
+                "name": item["name"],
+                "sector": item.get("sector", ""),
+                "changePct": item.get("change_pct", 0),
+            })
+
+    return eliminated
