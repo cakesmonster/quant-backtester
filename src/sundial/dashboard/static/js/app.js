@@ -1781,9 +1781,20 @@
     });
   }
 
-  function renderHoverCard(code, x, y) {
-    const stock = byCode(code);
-    if (!stock) return;
+  async function renderHoverCard(code, x, y, domName = '') {
+    let stock = byCode(code);
+    if (!stock) {
+      try {
+        const resp = await fetch(`/api/stock/brief/${code}`);
+        if (resp.ok) {
+          stock = await resp.json();
+          if (domName) stock.name = domName;
+          if (!state.data.stockMeta) state.data.stockMeta = {};
+          state.data.stockMeta[code] = stock;
+        }
+      } catch (e) {}
+    }
+    if (!stock || !stock.name) return;
 
     el.hoverCardName.textContent = stock.name;
     el.hoverCardCode.textContent = stock.code;
@@ -1837,7 +1848,10 @@
         const code = codeFromNode();
         if (!code) return;
         state.hoveredStock = code;
-        renderHoverCard(code, evt.clientX, evt.clientY);
+        // 从 DOM 取 name，API brief 端点不一定返回
+        const nameEl = node.querySelector('.stock-name');
+        const stockName = nameEl ? nameEl.textContent.trim() : '';
+        renderHoverCard(code, evt.clientX, evt.clientY, stockName);
       });
 
       node.addEventListener('mousemove', (evt) => {

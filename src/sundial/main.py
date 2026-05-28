@@ -171,14 +171,21 @@ async def api_dashboard(date: str = Query(None), code: str = Query(None)):
 
 @app.get("/api/shared")
 async def api_shared():
-    """meta + marketTape + stockMeta — 所有页面共用"""
+    """meta + marketTape — 启动时加载，~450 字节"""
     from .services.dashboard import _cached_build
     full = await _cached_build()
     return Response(content=json.dumps({
         "meta": full["meta"],
         "marketTape": full["marketTape"],
-        "stockMeta": full["stockMeta"],
     }, ensure_ascii=False), media_type="application/json; charset=utf-8")
+
+
+@app.get("/api/stock/brief/{code}")
+async def api_stock_brief(code: str):
+    """单只股票概要 — hover card 按需实时查"""
+    from .services.dashboard import _build_stock_brief
+    data = _build_stock_brief(code)
+    return Response(content=json.dumps(data, ensure_ascii=False), media_type="application/json; charset=utf-8")
 
 
 @app.get("/api/page/daily-replay")

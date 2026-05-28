@@ -616,6 +616,61 @@ def _build_trade_pairs(all_trades: list) -> list:
 # stockMeta
 # ═══════════════════════════════════════════════════════════════
 
+def _build_stock_brief(code: str) -> dict:
+    """单只股票概要 — hover card 按需实时查询，不预加载。"""
+    result = {"code": code, "name": "", "marketCap": 0, "floatCap": 0,
+              "pe": 0, "turnover": 0, "volumeRatio": 0, "concepts": [], "changePct": 0}
+
+    # concepts from sector_map cache
+    sm = _load_sector_map().get(code, {})
+    result["concepts"] = list(set(sm.get("概念", [])) | set(sm.get("行业", [])))
+
+    # mootdx: quotes (price, name, changePct) + finance (market cap)
+    try:
+        from mootdx.quotes import Quotes
+        client = Quotes.factory(market="std")
+        q = client.quotes(symbol=[code])
+        price = 0
+        if q is not None and not q.empty:
+            row = q.iloc[0]
+            price = float(row.get("price", 0) or 0)
+            last_close = float(row.get("last_close", 0) or 0)
+            if price > 0 and last_close > 0:
+                result["changePct"] = round((price - last_close) / last_close * 100, 2)
+        # finance
+        df = client.finance(symbol=code)
+        if df is not None and not df.empty and price > 0:
+            latest = df.sort_values("updated_date").iloc[-1]
+            ts = float(latest.get("zongguben", 0) or 0)
+            fs = float(latest.get("liutongguben", 0) or 0)
+            if ts > 0:
+                result["marketCap"] = round(price * ts / 1e8, 2)
+                result["floatCap"] = round(price * fs / 1e8, 2) if fs > 0 else 0
+    except Exception:
+        pass
+
+    # Baostock: PE + turnover
+    try:
+        import baostock as bs
+        _ensure_bs_login()
+        prefix = "sh" if code.startswith(("6", "5")) else "sz"
+        for offset in range(3):
+            d = (date.today() - timedelta(days=offset)).isoformat()
+            rs = bs.query_history_k_data_plus(f"{prefix}.{code}", "date,close,peTTM,turn",
+                                              start_date=d, end_date=d, frequency="d")
+            if rs is None or rs.error_code != "0":
+                continue
+            while rs.next():
+                row_data = rs.get_row_data()
+                if len(row_data) >= 4 and row_data[1] and float(row_data[1]) > 0:
+                    result["pe"] = round(float(row_data[2]), 2) if row_data[2] else 0
+                    result["turnover"] = round(float(row_data[3]), 2) if row_data[3] else 0
+                    break
+    except Exception:
+        pass
+
+    return result
+
 def _build_stock_meta(hot_list: dict, ladder: dict = None) -> dict:
     """从热榜 + 连板天梯 构建 stockMeta，补 Baostock PE/换手率 + mootdx 市值"""
     meta = {}
