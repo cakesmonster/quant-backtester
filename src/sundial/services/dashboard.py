@@ -3,26 +3,9 @@
 """
 import asyncio
 import json
-import time
 from datetime import date, datetime, timedelta
 
 DATE_FMT = "%Y%m%d"
-
-# ── TTL 缓存 ──
-_DASHBOARD_CACHE = None
-_DASHBOARD_CACHE_TS = 0
-_CACHE_TTL = 30  # 秒
-
-
-async def _cached_build(target_date: str = None, stock_code: str = None) -> dict:
-    """带 TTL 缓存的 build_dashboard，同 30 秒内复用。"""
-    global _DASHBOARD_CACHE, _DASHBOARD_CACHE_TS
-    now = time.time()
-    if _DASHBOARD_CACHE is not None and (now - _DASHBOARD_CACHE_TS) < _CACHE_TTL:
-        return _DASHBOARD_CACHE
-    _DASHBOARD_CACHE = await build_dashboard(target_date, stock_code)
-    _DASHBOARD_CACHE_TS = now
-    return _DASHBOARD_CACHE
 
 # ── 板块数据增强 ──
 SECTOR_MAP_PATH = "/root/.hermes/projects/sundial/data/cache/stock_sector_map.json"

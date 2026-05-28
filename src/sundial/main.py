@@ -1,4 +1,5 @@
 """日晷 FastAPI 入口 — SPA 前端 + REST API + 内部定时器"""
+import asyncio
 import json
 import sys
 import time
@@ -167,16 +168,62 @@ async def api_dashboard(date: str = Query(None), code: str = Query(None)):
     return Response(content=json.dumps(data, ensure_ascii=False), media_type="application/json; charset=utf-8")
 
 
-# ── 分页 API：按页面拆分数据，减少首屏负载 ──
+# ── 分页 API：每个端点独立计算，互不牵连 ──
+
 
 @app.get("/api/shared")
 async def api_shared():
-    """meta + marketTape — 启动时加载，~450 字节"""
-    from .services.dashboard import _cached_build
-    full = await _cached_build()
+    """meta + marketTape — 独立计算，不依赖 build_dashboard"""
+    now = datetime.now()
+    today = date.today().isoformat()
+    meta = {
+        "productName": "日晷",
+        "productSubtitle": "Sundial",
+        "updatedAt": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "today": today,
+        "historyRange": f"2024-01-01 ~ {today}",
+        "scope": "A股市场实时数据",
+    }
+    market_tape = []
+    INDEX_MAP = [("000001", "上证"), ("399001", "深成"), ("399006", "创业板"), ("000688", "科创50")]
+    try:
+        from mootdx.quotes import Quotes
+        client = Quotes.factory(market="std")
+        q = client.quotes(symbol=[s for s, _ in INDEX_MAP])
+        if q is not None:
+            for sym, label in INDEX_MAP:
+                row = q[q["code"] == sym]
+                if not row.empty:
+                    r = row.iloc[0]
+                    price = float(r.get("price", 0) or 0)
+                    last_close = float(r.get("last_close", 0) or 0)
+                    change_pct = round((price - last_close) / last_close * 100, 2) if last_close > 0 else 0
+                    if price > 0:
+                        market_tape.append({"symbol": label, "price": price, "changePct": change_pct, "code": ""})
+    except Exception:
+        pass
     return Response(content=json.dumps({
-        "meta": full["meta"],
-        "marketTape": full["marketTape"],
+        "meta": meta,
+        "marketTape": market_tape,
+    }, ensure_ascii=False), media_type="application/json; charset=utf-8")
+
+
+@app.get("/api/page/daily-replay")
+async def api_page_daily_replay():
+    """每日复盘：sentiment + ladder + yday_perf"""
+    from .services.dashboard import _build_daily_replay
+    from .services.sentiment import compute_sentiment
+    from .services.ladder import compute_ladder, compute_yesterday_performance
+
+    d = _today_ymd()
+    iso = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+
+    sentiment, ladder, yday_perf = await asyncio.gather(
+        compute_sentiment(d), compute_ladder(d), compute_yesterday_performance(d)
+    )
+    daily_replay = _build_daily_replay(sentiment, ladder, yday_perf, iso)
+    return Response(content=json.dumps({
+        "dailyReplay": daily_replay,
     }, ensure_ascii=False), media_type="application/json; charset=utf-8")
 
 
@@ -188,39 +235,30 @@ async def api_stock_brief(code: str):
     return Response(content=json.dumps(data, ensure_ascii=False), media_type="application/json; charset=utf-8")
 
 
-@app.get("/api/page/daily-replay")
-async def api_page_daily_replay():
-    from .services.dashboard import _cached_build
-    full = await _cached_build()
-    return Response(content=json.dumps({
-        "dailyReplay": full["dailyReplay"],
-    }, ensure_ascii=False), media_type="application/json; charset=utf-8")
-
-
 @app.get("/api/page/stock-analysis")
 async def api_page_stock_analysis():
-    from .services.dashboard import _cached_build
-    full = await _cached_build()
+    from .services.dashboard import _build_stock_analysis
+    data = await _build_stock_analysis(None)
     return Response(content=json.dumps({
-        "stockAnalysis": full["stockAnalysis"],
+        "stockAnalysis": data,
     }, ensure_ascii=False), media_type="application/json; charset=utf-8")
 
 
 @app.get("/api/page/strategy-backtest")
 async def api_page_strategy_backtest():
-    from .services.dashboard import _cached_build
-    full = await _cached_build()
+    from .services.dashboard import _build_strategy_backtest
+    data = _build_strategy_backtest()
     return Response(content=json.dumps({
-        "strategyBacktest": full["strategyBacktest"],
+        "strategyBacktest": data,
     }, ensure_ascii=False), media_type="application/json; charset=utf-8")
 
 
 @app.get("/api/page/paper-account")
 async def api_page_paper_account():
-    from .services.dashboard import _cached_build
-    full = await _cached_build()
+    from .services.dashboard import _build_paper_account
+    data = _build_paper_account()
     return Response(content=json.dumps({
-        "paperAccount": full["paperAccount"],
+        "paperAccount": data,
     }, ensure_ascii=False), media_type="application/json; charset=utf-8")
 
 
