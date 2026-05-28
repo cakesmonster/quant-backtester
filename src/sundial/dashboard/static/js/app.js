@@ -227,6 +227,7 @@
   }
 
   function parseMvToNum(text) {
+    if (typeof text === 'number') return text;
     if (typeof text !== 'string') return 0;
     const n = Number(text.replace(/[^0-9.]/g, ''));
     return Number.isFinite(n) ? n : 0;

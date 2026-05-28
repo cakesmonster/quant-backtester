@@ -135,12 +135,17 @@ def sync_to_db():
     pos_value = sum(p["price"] * p["shares"] for p in positions.values())
     pos_list = list(positions.values())
 
+    # 可用资金不能依赖 THS API（THS 不知道 board_monitor 的买卖）。
+    # 用总资产 - 持仓市值推算真实现金余额。
+    total_asset = acct.get("total_asset", 0)
+    available_cash = total_asset - pos_value
+
     with db_session() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO account_snapshot (date, total_asset, available_cash, position_value, daily_pnl, holdings) VALUES (?,?,?,?,?,?)",
             (today,
-             acct.get("total_asset", 0),
-             acct.get("available_cash", 0),
+             total_asset,
+             available_cash,
              pos_value,
              acct.get("daily_pnl", 0),
              json.dumps(pos_list, ensure_ascii=False)),
