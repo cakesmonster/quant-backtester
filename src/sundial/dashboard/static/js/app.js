@@ -88,7 +88,7 @@
   }
 
   function byCode(code) {
-    return state.data.stockMeta[code] || null;
+    return (state.data.stockMeta && state.data.stockMeta[code]) || null;
   }
 
   function createSkeleton(lines = 5) {
@@ -722,9 +722,21 @@
 
 
   function renderStockInfoCard(code) {
-    const stock = byCode(code);
+    let stock = byCode(code);
     const infoRoot = document.getElementById('stock-info');
-    if (!stock || !infoRoot) return;
+    if (!infoRoot) return;
+
+    // 如果 stockMeta 中没有，从 DOM 或用代码兜底
+    if (!stock) {
+      const codeEl = document.querySelector(`[data-stock-code="${code}"] .stock-code`);
+      const nameEl = document.querySelector(`[data-stock-code="${code}"] .stock-name`);
+      stock = {
+        code: code,
+        name: nameEl ? nameEl.textContent.trim() : code,
+        marketCap: 0, floatCap: 0, pe: 0, turnover: 0, volumeRatio: 0, concepts: [],
+        changePct: 0,
+      };
+    }
     const intraday = state.data.stockAnalysis.intraday[code] || state.data.stockAnalysis.intradayFallback;
     const first = intraday[0]?.value || 0;
     const last = intraday[intraday.length - 1]?.value || first;
