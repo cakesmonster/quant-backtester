@@ -965,13 +965,19 @@ input:focus-visible, select:focus-visible, button:focus-visible,
 /* D3 elements */
 .chain-link { stroke: #d1d5db; stroke-opacity: 0.6; }
 .chain-link.highlight { stroke: #f59e0b; stroke-opacity: 0.9; stroke-width: 2.5; }
+.chain-link.ripple-link { stroke: #06b6d4; stroke-opacity: 0.7; stroke-width: 2; }
 .chain-link.dim { stroke-opacity: 0.08; }
 
-.chain-node circle { cursor: pointer; transition: r .2s; }
+.chain-node circle { cursor: pointer; transition: opacity .3s, r .2s; }
 .chain-node text {
   font-size: 12px; fill: #374151;
   pointer-events: none; user-select: none;
+  transition: opacity .3s;
 }
 .chain-node:hover text { fill: #111827; }
-.chain-node.dim circle { opacity: 0.1; }
-.chain-node.dim text { opacity: 0.1; }
+.chain-node.dim circle { opacity: 0.08; }
+.chain-node.dim text { opacity: 0.08; }
+.chain-node.clicked circle { stroke: #f59e0b; stroke-width: 4; filter: drop-shadow(0 0 6px rgba(245,158,11,0.5)); }
+.chain-node.clicked text { fill: #111827; font-weight: 700; }
+.chain-node.ripple circle { stroke: #06b6d4; stroke-width: 3; filter: drop-shadow(0 0 4px rgba(6,182,212,0.4)); }
+.chain-node.ripple text { fill: #0e7490; font-weight: 600; }

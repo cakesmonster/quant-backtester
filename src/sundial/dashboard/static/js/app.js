@@ -1845,6 +1845,7 @@
         // Click → Ripple
         node.on('click', (e, d) => {
           e.stopPropagation();
+          tooltip.style('display', 'none');
           const c = getNodeColor(d, data);
           const label = getNodeLabel(d);
           const downstream = getDownstream(d.id, data.nodes, links);
@@ -1868,45 +1869,79 @@
           `;
           document.getElementById('chain-panel').classList.add('open');
 
-          node.classed('dim', true);
-          link.classed('dim', true).classed('highlight', false);
-          node.classed('dim', n => {
-            if (n.id === d.id) return false;
-            return !downstream.some(ds => ds.id === n.id);
-          });
-          link.classed('dim', l => {
-            const s = typeof l.source === 'object' ? l.source.id : l.source;
-            return s !== d.id;
-          });
-          link.classed('highlight', l => {
-            const s = typeof l.source === 'object' ? l.source.id : l.source;
-            return s === d.id;
-          });
+          // Highlight clicked + ripple nodes
+          const dsIds = new Set(downstream.map(n => n.id));
+          node
+            .classed('clicked', n => n.id === d.id)
+            .classed('ripple', n => dsIds.has(n.id))
+            .classed('dim', n => n.id !== d.id && !dsIds.has(n.id));
+          link
+            .classed('highlight', l => {
+              const s = typeof l.source === 'object' ? l.source.id : l.source;
+              return s === d.id;
+            })
+            .classed('ripple-link', l => {
+              const s = typeof l.source === 'object' ? l.source.id : l.source;
+              const t = typeof l.target === 'object' ? l.target.id : l.target;
+              return s !== d.id && (dsIds.has(s) || dsIds.has(t));
+            })
+            .classed('dim', l => {
+              const s = typeof l.source === 'object' ? l.source.id : l.source;
+              const t = typeof l.target === 'object' ? l.target.id : l.target;
+              return s !== d.id && !dsIds.has(s) && !dsIds.has(t);
+            });
         });
+
+        function resetHighlight() {
+          node.classed('dim', false).classed('clicked', false).classed('ripple', false);
+          link.classed('dim', false).classed('highlight', false).classed('ripple-link', false);
+        }
 
         d3.select(svg).on('click', () => {
           document.getElementById('chain-panel').classList.remove('open');
-          node.classed('dim', false);
-          link.classed('dim', false).classed('highlight', false);
+          resetHighlight();
         });
 
         // Search
         d3.select('#chain-search').on('input', function() {
-          const q = this.value.toLowerCase();
-          if (!q) { node.classed('dim', false); link.classed('dim', false).classed('highlight', false); return; }
-          node.classed('dim', d => !(d.id.toLowerCase().includes(q) || (d.summary||'').toLowerCase().includes(q) || (d.leaders||[]).some(l => l.toLowerCase().includes(q))));
-          link.classed('dim', l => {
-            const s = typeof l.source === 'object' ? l.source.id : l.source;
-            const t = typeof l.target === 'object' ? l.target.id : l.target;
-            return !(s.toLowerCase().includes(q) || t.toLowerCase().includes(q));
-          });
+          const q = this.value.trim().toLowerCase();
+          if (!q) { resetHighlight(); return; }
+          const match = data.nodes.find(d => d.id.toLowerCase() === q || d.id.toLowerCase().includes(q));
+          if (!match) {
+            node.classed('dim', d => {
+              const id = (d.id||'').toLowerCase();
+              return !id.includes(q) && !(d.summary||'').toLowerCase().includes(q) && !(d.leaders||[]).some(l => l.toLowerCase().includes(q));
+            });
+            link.classed('dim', true);
+            return;
+          }
+          const downstream = getDownstream(match.id, data.nodes, links);
+          const dsIds = new Set(downstream.map(n => n.id));
+          node
+            .classed('clicked', n => n.id === match.id)
+            .classed('ripple', n => dsIds.has(n.id))
+            .classed('dim', n => n.id !== match.id && !dsIds.has(n.id));
+          link
+            .classed('highlight', l => {
+              const s = typeof l.source === 'object' ? l.source.id : l.source;
+              return s === match.id;
+            })
+            .classed('ripple-link', l => {
+              const s = typeof l.source === 'object' ? l.source.id : l.source;
+              const t = typeof l.target === 'object' ? l.target.id : l.target;
+              return s !== match.id && (dsIds.has(s) || dsIds.has(t));
+            })
+            .classed('dim', l => {
+              const s = typeof l.source === 'object' ? l.source.id : l.source;
+              const t = typeof l.target === 'object' ? l.target.id : l.target;
+              return s !== match.id && !dsIds.has(s) && !dsIds.has(t);
+            });
         });
 
         // Panel close button
         document.getElementById('chain-panel-close').addEventListener('click', () => {
           document.getElementById('chain-panel').classList.remove('open');
-          node.classed('dim', false);
-          link.classed('dim', false).classed('highlight', false);
+          resetHighlight();
         });
 
         // Highlight oil/gas/coal on load
