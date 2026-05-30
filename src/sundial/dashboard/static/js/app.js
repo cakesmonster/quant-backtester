@@ -489,6 +489,8 @@
     const sectorDown = document.getElementById('sector-down');
     const sectorSummary = document.getElementById('sector-summary');
 
+    if (!dateInput) return;
+
     function renderByDate(date) {
       const day = daily.byDate[date] || daily.byDate[today];
       const isToday = date === today;
@@ -616,6 +618,8 @@
     const nowBtn = document.getElementById('hot-now');
     const hotBody = document.getElementById('hot-body');
     const hotEmpty = document.getElementById('hot-empty');
+
+    if (!dateInput || !hourSelect) return;
 
     // 填充小时下拉 00-23
     for (let h = 0; h < 24; h++) {
@@ -1442,6 +1446,8 @@
     const tradeTimesInput = document.getElementById('bt-trade-times');
     const capitalInput = document.getElementById('bt-capital');
 
+    if (!strategySelect) return;
+
     strategySelect.innerHTML = backtest.strategies
       .map((s) => `<option value="${s.id}">${s.name}</option>`)
       .join('');
@@ -1621,6 +1627,8 @@
     const positionDonut = document.getElementById('position-donut');
     const microBars = document.getElementById('account-micro-bars');
 
+    if (!dateInput) return;
+
     function draw(date) {
       const snap = account.byDate[date] || account.byDate[state.data.meta.today];
 
@@ -1751,6 +1759,7 @@
     function loadGraph() {
       const svg = document.getElementById('chain-graph-svg');
       const loadingEl = document.getElementById('chain-loading');
+      if (!svg || !loadingEl) return;
       let simActive = null;
       const INDUSTRY_ID = 'macro-industry';
 
@@ -1781,8 +1790,9 @@
         const sim = d3.forceSimulation(data.nodes)
           .force('link', d3.forceLink(links).id(d => d.id).distance(140).strength(0.3))
           .force('charge', d3.forceManyBody().strength(-500))
-          .force('center', d3.forceCenter(W/2, H/2).strength(0.02))
-          .force('collide', d3.forceCollide().radius(d => d.r + 10));
+          .force('center', d3.forceCenter(W/2, H/2).strength(0.2))
+          .force('collide', d3.forceCollide().radius(d => d.r + 10))
+          .alphaDecay(0.02);
         simActive = sim;
 
         const link = g.append('g').selectAll('line')
