@@ -4,7 +4,7 @@
     pageTemplates: new Map(),
     activePage: (() => {
       const h = location.hash.replace('#', '').trim();
-      const known = ['daily-replay','hot-list','stock-analysis','strategy-backtest','paper-account'];
+      const known = ['daily-replay','hot-list','stock-analysis','strategy-backtest','paper-account','industry-chain'];
       return known.includes(h) ? h : 'daily-replay';
     })(),
     currentStockCode: '',
@@ -18,7 +18,8 @@
     'hot-list': '/static/pages/hot-list.html',
     'stock-analysis': '/static/pages/stock-analysis.html',
     'strategy-backtest': '/static/pages/strategy-backtest.html',
-    'paper-account': '/static/pages/paper-account.html'
+    'paper-account': '/static/pages/paper-account.html',
+    'industry-chain': '/static/pages/industry-chain.html'
   };
 
   const PERIOD_KEYS = ['11:30', '15:00', '21:00'];
@@ -108,6 +109,7 @@
     'stock-analysis': '/api/page/stock-analysis',
     'strategy-backtest': '/api/page/strategy-backtest',
     'paper-account': '/api/page/paper-account',
+    'industry-chain': '/api/page/industry-chain'
   };
 
   async function loadPageData(pageId) {
@@ -1731,13 +1733,242 @@
     draw(dateInput.value);
   }
 
+  function renderIndustryChain() {
+    // 动态加载 D3.js
+    if (typeof d3 === 'undefined') {
+      const script = document.createElement('script');
+      script.src = 'https://d3js.org/d3.v7.min.js';
+      script.onload = () => loadGraph();
+      script.onerror = () => {
+        const loading = document.getElementById('chain-loading');
+        if (loading) loading.textContent = '⚠️ D3.js 加载失败，请检查网络';
+      };
+      document.head.appendChild(script);
+      return;
+    }
+    loadGraph();
+
+    function loadGraph() {
+      const svg = document.getElementById('chain-graph-svg');
+      const loadingEl = document.getElementById('chain-loading');
+      let simActive = null;
+      const INDUSTRY_ID = 'macro-industry';
+
+      fetch(`/api/industry/${INDUSTRY_ID}`)
+        .then(r => r.json())
+        .then(data => {
+          loadingEl.style.display = 'none';
+          buildGraph(data);
+        })
+        .catch(() => { loadingEl.textContent = '⚠️ 加载失败，请重试'; });
+
+      function buildGraph(data) {
+        svg.innerHTML = '';
+        const W = svg.clientWidth || 800;
+        const H = svg.clientHeight || 600;
+
+        const g = d3.select(svg).append('g');
+        const zoom = d3.zoom().scaleExtent([0.2, 4]).on('zoom', e => g.attr('transform', e.transform));
+        d3.select(svg).call(zoom).call(zoom.transform, d3.zoomIdentity.translate(W/2-100, H/2-80));
+
+        data.nodes.forEach(n => {
+          n.x = W/2 + (Math.random() - 0.5) * 300;
+          n.y = H * 0.45 + (Math.random() - 0.5) * 200;
+        });
+
+        const links = data.links.map(d => ({ source: d.source, target: d.target }));
+
+        const sim = d3.forceSimulation(data.nodes)
+          .force('link', d3.forceLink(links).id(d => d.id).distance(140).strength(0.3))
+          .force('charge', d3.forceManyBody().strength(-500))
+          .force('center', d3.forceCenter(W/2, H/2).strength(0.02))
+          .force('collide', d3.forceCollide().radius(d => d.r + 10));
+        simActive = sim;
+
+        const link = g.append('g').selectAll('line')
+          .data(links).join('line')
+          .attr('class', 'chain-link')
+          .attr('stroke-width', 1.5);
+
+        const node = g.append('g').selectAll('.chain-node')
+          .data(data.nodes).join('g')
+          .attr('class', 'chain-node')
+          .call(d3.drag()
+            .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+            .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+            .on('end', (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
+          );
+
+        node.append('circle')
+          .attr('r', d => d.r)
+          .attr('fill', d => getNodeColor(d, data))
+          .attr('stroke', '#fff')
+          .attr('stroke-width', 2.5);
+
+        node.append('text')
+          .text(d => d.id)
+          .attr('dy', d => d.r + 14)
+          .attr('text-anchor', 'middle')
+          .style('font-size', d => d.r > 18 ? '13px' : '11px')
+          .style('fill', '#374151');
+
+        sim.on('tick', () => {
+          link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+              .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+          node.attr('transform', d => `translate(${d.x},${d.y})`);
+        });
+
+        // Tooltip
+        const tooltip = d3.select('#chain-tooltip');
+        node.on('mouseenter', (e, d) => {
+          const c = getNodeColor(d, data);
+          const label = getNodeLabel(d);
+          tooltip.style('display', 'block')
+            .html(`<div class="chain-tt-name">${d.id}</div>
+                   <span class="chain-tt-group" style="background:${c}18;color:${c}">${label}</span>
+                   <div class="chain-tt-detail">${d.summary || ''}</div>`)
+            .style('left', (e.pageX + 16) + 'px').style('top', (e.pageY - 10) + 'px');
+        });
+        node.on('mousemove', e => tooltip.style('left', (e.pageX + 16) + 'px').style('top', (e.pageY - 10) + 'px'));
+        node.on('mouseleave', () => tooltip.style('display', 'none'));
+
+        // Click → Ripple
+        node.on('click', (e, d) => {
+          e.stopPropagation();
+          const c = getNodeColor(d, data);
+          const label = getNodeLabel(d);
+          const downstream = getDownstream(d.id, data.nodes, links);
+
+          let leadersHtml = '';
+          if (d.leaders && d.leaders.length)
+            leadersHtml = '<div class="chain-panel-leaders">' + d.leaders.map(l => `<span>${l}</span>`).join('') + '</div>';
+
+          let rippleHtml = '';
+          if (downstream.length) {
+            rippleHtml = '<div class="chain-panel-ripple">🌊 涟漪影响 (' + downstream.length + '个下游)：' +
+              downstream.map(n => `<span>${n.id}</span>`).join('') + '</div>';
+          }
+
+          document.getElementById('chain-panel-content').innerHTML = `
+            <h2>${d.id}</h2>
+            <div class="chain-panel-meta"><span style="background:${c}18;color:${c};padding:2px 10px;border-radius:10px;font-size:12px">${label}</span></div>
+            ${leadersHtml}
+            <p>${d.summary || ''}</p>
+            ${rippleHtml}
+          `;
+          document.getElementById('chain-panel').classList.add('open');
+
+          node.classed('dim', true);
+          link.classed('dim', true).classed('highlight', false);
+          node.classed('dim', n => {
+            if (n.id === d.id) return false;
+            return !downstream.some(ds => ds.id === n.id);
+          });
+          link.classed('dim', l => {
+            const s = typeof l.source === 'object' ? l.source.id : l.source;
+            return s !== d.id;
+          });
+          link.classed('highlight', l => {
+            const s = typeof l.source === 'object' ? l.source.id : l.source;
+            return s === d.id;
+          });
+        });
+
+        d3.select(svg).on('click', () => {
+          document.getElementById('chain-panel').classList.remove('open');
+          node.classed('dim', false);
+          link.classed('dim', false).classed('highlight', false);
+        });
+
+        // Search
+        d3.select('#chain-search').on('input', function() {
+          const q = this.value.toLowerCase();
+          if (!q) { node.classed('dim', false); link.classed('dim', false).classed('highlight', false); return; }
+          node.classed('dim', d => !(d.id.toLowerCase().includes(q) || (d.summary||'').toLowerCase().includes(q) || (d.leaders||[]).some(l => l.toLowerCase().includes(q))));
+          link.classed('dim', l => {
+            const s = typeof l.source === 'object' ? l.source.id : l.source;
+            const t = typeof l.target === 'object' ? l.target.id : l.target;
+            return !(s.toLowerCase().includes(q) || t.toLowerCase().includes(q));
+          });
+        });
+
+        // Panel close button
+        document.getElementById('chain-panel-close').addEventListener('click', () => {
+          document.getElementById('chain-panel').classList.remove('open');
+          node.classed('dim', false);
+          link.classed('dim', false).classed('highlight', false);
+        });
+
+        // Highlight oil/gas/coal on load
+        setTimeout(() => {
+          node.filter(d => ['石油','天然气','煤炭'].includes(d.id))
+            .select('circle')
+            .attr('stroke', '#f59e0b')
+            .attr('stroke-width', 3.5);
+        }, 1500);
+
+        buildLegend(data);
+      }
+
+      function getNodeColor(d, data) {
+        if (data.groups && d.group) return data.groups[d.group] || '#9ca3af';
+        const tc = { '上游': '#22c55e', '中游': '#3b82f6', '下游': '#f59e0b' };
+        return tc[d.tier] || '#9ca3af';
+      }
+
+      function getNodeLabel(d) {
+        return d.group || d.tier || '';
+      }
+
+      function getDownstream(nodeId, nodes, links) {
+        const visited = new Set();
+        const queue = [nodeId];
+        visited.add(nodeId);
+        while (queue.length) {
+          const cur = queue.shift();
+          links.forEach(l => {
+            const src = typeof l.source === 'object' ? l.source.id : l.source;
+            const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+            if (src === cur && !visited.has(tgt)) { visited.add(tgt); queue.push(tgt); }
+          });
+        }
+        visited.delete(nodeId);
+        return [...visited].map(id => nodes.find(n => n.id === id)).filter(Boolean);
+      }
+
+      function buildLegend(data) {
+        const legend = document.getElementById('chain-legend');
+        if (data.groups) {
+          legend.innerHTML = Object.entries(data.groups)
+            .map(([name, color]) => `<span class="chain-legend-item"><span class="chain-legend-dot" style="background:${color}"></span>${name}</span>`)
+            .join('');
+        } else {
+          legend.innerHTML = `
+            <span class="chain-legend-item"><span class="chain-legend-dot" style="background:#22c55e"></span>上游</span>
+            <span class="chain-legend-item"><span class="chain-legend-dot" style="background:#3b82f6"></span>中游</span>
+            <span class="chain-legend-item"><span class="chain-legend-dot" style="background:#f59e0b"></span>下游</span>`;
+        }
+      }
+
+      // Resize handler
+      window.addEventListener('resize', () => {
+        if (simActive && svg) {
+          const W2 = svg.clientWidth, H2 = svg.clientHeight;
+          simActive.force('center', d3.forceCenter(W2/2, H2/2).strength(0.02));
+          simActive.alpha(0.3).restart();
+        }
+      });
+    }
+  }
+
   function runPageRenderer(pageId) {
     const renderers = {
       'daily-replay': renderDailyReplay,
       'hot-list': renderHotList,
       'stock-analysis': renderStockAnalysis,
       'strategy-backtest': renderStrategyBacktest,
-      'paper-account': renderPaperAccount
+      'paper-account': renderPaperAccount,
+      'industry-chain': renderIndustryChain
     };
     const fn = renderers[pageId];
     if (fn) fn();

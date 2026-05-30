@@ -262,6 +262,109 @@ async def api_page_paper_account():
     }, ensure_ascii=False), media_type="application/json; charset=utf-8")
 
 
+# ═══════════════════════════════════════════════════════════════
+# 产业链分析 — 数据来自 industry-chain 项目
+# ═══════════════════════════════════════════════════════════════
+
+_INDUSTRY_DATA = Path(__file__).parent / "industry_data"
+_INDUSTRY_ANALYSES = Path(__file__).parent / "industry_analyses"
+
+
+def _md_to_html(md: str) -> str:
+    """简单Markdown→HTML渲染（从 industry-chain/server.py 移植）"""
+    import re
+    md = re.sub(r'^### (.+)$', r'<h3>\1</h3>', md, flags=re.M)
+    md = re.sub(r'^## (.+)$', r'<h2>\1</h2>', md, flags=re.M)
+    md = re.sub(r'^# (.+)$', r'<h1>\1</h1>', md, flags=re.M)
+    md = re.sub(r'> (.+)$', r'<blockquote>\1</blockquote>', md, flags=re.M)
+    md = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', md)
+    md = re.sub(r'^- (.+)$', r'<li>\1</li>', md, flags=re.M)
+    md = re.sub(r'`([^`]+)`', r'<code>\1</code>', md)
+    md = re.sub(r'\[(.+?)\]\((.+?)\)', r'<a href="\2">\1</a>', md)
+    md = re.sub(r'---', r'<hr>', md)
+    lines = md.split('\n')
+    result = []
+    in_table = False
+    for line in lines:
+        if '|' in line and line.strip().startswith('|'):
+            if not in_table:
+                result.append('<table>')
+                in_table = True
+            cells = [c.strip() for c in line.split('|')[1:-1]]
+            if all(re.match(r'^:?-{3,}:?$', c) for c in cells):
+                continue
+            is_header = not result or not result[-1].startswith('<tr>')
+            tag = 'th' if is_header and in_table else 'td'
+            result.append('<tr>' + ''.join(f'<{tag}>{c}</{tag}>' for c in cells) + '</tr>')
+        else:
+            if in_table:
+                result.append('</table>')
+                in_table = False
+            result.append(line if line.strip() else '<br>')
+    if in_table:
+        result.append('</table>')
+    return '\n'.join(result)
+
+
+@app.get("/api/page/industry-chain")
+async def api_page_industry_chain():
+    with open(_INDUSTRY_DATA / "index.json", encoding="utf-8") as f:
+        data = json.load(f)
+    return Response(content=json.dumps(data, ensure_ascii=False), media_type="application/json; charset=utf-8")
+
+
+@app.get("/api/industry/{industry_id}")
+async def api_industry(industry_id: str):
+    fp = _INDUSTRY_DATA / f"{industry_id}.json"
+    if not fp.exists():
+        return Response(content=json.dumps({"error": "not found"}, ensure_ascii=False),
+                        status_code=404, media_type="application/json; charset=utf-8")
+    with open(fp, encoding="utf-8") as f:
+        data = json.load(f)
+    for node in data.get("nodes", []):
+        node["has_analysis"] = bool(node.get("analysis_file"))
+    return Response(content=json.dumps(data, ensure_ascii=False), media_type="application/json; charset=utf-8")
+
+
+@app.get("/api/industry/{industry_id}/analysis/{filename}")
+async def api_industry_analysis(industry_id: str, filename: str):
+    fp = _INDUSTRY_ANALYSES / filename
+    if not fp.exists():
+        return HTMLResponse("<h1>分析报告未找到</h1><a href='javascript:history.back()'>← 返回</a>", status_code=404)
+    md = fp.read_text(encoding="utf-8")
+    html = _md_to_html(md)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>产业链深度分析</title>
+<style>
+  body {{ max-width: 800px; margin: 0 auto; padding: 40px 20px;
+    background: #f8f9fb; color: #1d2129;
+    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    line-height: 1.8; }}
+  h1 {{ color: #111; border-bottom: 2px solid #e5e7eb; padding-bottom: 12px; }}
+  h2 {{ color: #1d2129; margin-top: 36px; }}
+  h3 {{ color: #333; margin-top: 24px; }}
+  blockquote {{ border-left: 3px solid #3b82f6; padding-left: 16px; color: #6b7280; background: #f0f4ff; margin: 12px 0; padding: 8px 16px; }}
+  table {{ border-collapse: collapse; width: 100%; margin: 16px 0; }}
+  th, td {{ border: 1px solid #e5e7eb; padding: 8px 12px; text-align: left; }}
+  th {{ background: #f3f4f6; color: #1d2129; font-weight: 600; }}
+  code {{ background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #d946ef; }}
+  strong {{ color: #111; }}
+  hr {{ border: none; border-top: 1px solid #e5e7eb; margin: 24px 0; }}
+  a {{ color: #3b82f6; }}
+  li {{ margin: 4px 0; }}
+</style>
+</head>
+<body>
+{html}
+</body>
+</html>
+""")
+
+
 @app.get("/api/review")
 async def api_review(date: str = Query(None)):
     from .services.sentiment import compute_sentiment
