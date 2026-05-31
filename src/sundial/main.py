@@ -266,7 +266,7 @@ async def api_page_paper_account():
 # 产业链分析 — 数据来自 industry-chain 项目
 # ═══════════════════════════════════════════════════════════════
 
-_INDUSTRY_DATA = Path(__file__).parent / "industry_data"
+_INDUSTRY_DATA = Path(__file__).parent.parent.parent / "data" / "industry_data"
 _INDUSTRY_ANALYSES = Path(__file__).parent / "industry_analyses"
 
 
